@@ -1,0 +1,188 @@
+import { useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
+import { Check, X, Loader2 } from "lucide-react";
+
+interface Reserva {
+  id: string;
+  nome: string;
+  apelido: string;
+  telefone: string;
+  email: string;
+  data_reserva: string;
+  hora_reserva: string;
+  numero_pessoas: number;
+  estado: "pendente" | "confirmado" | "rejeitado";
+  created_at: string;
+}
+
+export const ReservasTab = () => {
+  const [reservas, setReservas] = useState<Reserva[]>([]);
+  const [filtro, setFiltro] = useState<"todas" | "pendente" | "confirmado" | "rejeitado">("pendente");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadReservas();
+
+    const channel = supabase
+      .channel("reservas_changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "reservas",
+        },
+        () => {
+          loadReservas();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const loadReservas = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("reservas")
+      .select("*")
+      .order("data_reserva", { ascending: true })
+      .order("hora_reserva", { ascending: true });
+
+    if (!error && data) {
+      setReservas(data as Reserva[]);
+    }
+    setLoading(false);
+  };
+
+  const updateStatus = async (id: string, estado: "confirmado" | "rejeitado") => {
+    const { error } = await supabase
+      .from("reservas")
+      .update({ estado })
+      .eq("id", id);
+
+    if (error) {
+      toast.error("Erro ao atualizar reserva");
+    } else {
+      toast.success(
+        estado === "confirmado" ? "Reserva confirmada!" : "Reserva rejeitada!"
+      );
+    }
+  };
+
+  const reservasFiltradas =
+    filtro === "todas"
+      ? reservas
+      : reservas.filter((r) => r.estado === filtro);
+
+  const getStatusBadge = (estado: string) => {
+    const variants = {
+      pendente: "secondary",
+      confirmado: "default",
+      rejeitado: "destructive",
+    } as const;
+
+    return (
+      <Badge variant={variants[estado as keyof typeof variants]}>
+        {estado.charAt(0).toUpperCase() + estado.slice(1)}
+      </Badge>
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex gap-2 flex-wrap">
+        {(["pendente", "confirmado", "rejeitado", "todas"] as const).map((f) => (
+          <Button
+            key={f}
+            variant={filtro === f ? "default" : "outline"}
+            onClick={() => setFiltro(f)}
+          >
+            {f.charAt(0).toUpperCase() + f.slice(1)}
+          </Button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      ) : reservasFiltradas.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            Nenhuma reserva encontrada
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4">
+          {reservasFiltradas.map((reserva) => (
+            <Card key={reserva.id} className="shadow-soft">
+              <CardHeader className="pb-3">
+                <div className="flex justify-between items-start">
+                  <CardTitle className="text-lg">
+                    {reserva.nome} {reserva.apelido}
+                  </CardTitle>
+                  {getStatusBadge(reserva.estado)}
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid md:grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Telefone</p>
+                    <p className="font-medium">{reserva.telefone}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Email</p>
+                    <p className="font-medium">{reserva.email}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Data</p>
+                    <p className="font-medium">
+                      {new Date(reserva.data_reserva).toLocaleDateString("pt-PT")}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Hora</p>
+                    <p className="font-medium">{reserva.hora_reserva}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Pessoas</p>
+                    <p className="font-medium">{reserva.numero_pessoas}</p>
+                  </div>
+                </div>
+
+                {reserva.estado === "pendente" && (
+                  <div className="flex gap-2 mt-4">
+                    <Button
+                      size="sm"
+                      onClick={() => updateStatus(reserva.id, "confirmado")}
+                      className="flex-1"
+                    >
+                      <Check className="mr-2 h-4 w-4" />
+                      Confirmar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => updateStatus(reserva.id, "rejeitado")}
+                      className="flex-1"
+                    >
+                      <X className="mr-2 h-4 w-4" />
+                      Rejeitar
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
