@@ -37,6 +37,28 @@ const Index = () => {
   useEffect(() => {
     loadConfig();
     loadPratosDestaque();
+    
+    // Atualizar pratos em destaque quando houver mudanças (outras abas)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'table_menu_ementa') {
+        loadPratosDestaque();
+      }
+    };
+    
+    // Atualizar pratos em destaque quando houver mudanças (mesma aba)
+    const handleCustomStorageChange = (e: CustomEvent) => {
+      if (e.detail?.key === 'table_menu_ementa') {
+        loadPratosDestaque();
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('localStorageChange', handleCustomStorageChange as EventListener);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('localStorageChange', handleCustomStorageChange as EventListener);
+    };
   }, []);
 
   const loadConfig = () => {

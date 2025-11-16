@@ -29,13 +29,35 @@ export const EmentaTab = () => {
 
   useEffect(() => {
     loadItems();
+    
+    // Listener para atualizar quando houver mudanças no localStorage (outras abas)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'table_menu_ementa') {
+        loadItems();
+      }
+    };
+    
+    // Listener para atualizar quando houver mudanças na mesma aba
+    const handleCustomStorageChange = (e: CustomEvent) => {
+      if (e.detail?.key === 'table_menu_ementa') {
+        loadItems();
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('localStorageChange', handleCustomStorageChange as EventListener);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('localStorageChange', handleCustomStorageChange as EventListener);
+    };
   }, []);
 
   const loadItems = () => {
     setLoading(true);
     const data = localMenu.getAll();
-    // Ordenar por seção e nome
-    const sorted = data.sort((a, b) => {
+    // Ordenar por seção e nome (criar cópia para não modificar o original)
+    const sorted = [...data].sort((a, b) => {
       if (a.secao !== b.secao) {
         return a.secao.localeCompare(b.secao);
       }
@@ -70,23 +92,33 @@ export const EmentaTab = () => {
     setDialogOpen(true);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Validar preço
+    const preco = parseFloat(formData.preco);
+    if (isNaN(preco) || preco <= 0) {
+      toast.error("Preço inválido. Digite um valor maior que zero.");
+      return;
+    }
+
+    // Validar nome
+    if (!formData.nome.trim()) {
+      toast.error("Nome é obrigatório.");
+      return;
+    }
+
     const data = {
-      nome: formData.nome,
-      descricao: formData.descricao || null,
-      preco: parseFloat(formData.preco),
-      secao: formData.secao,
+      nome: formData.nome.trim(),
+      descricao: formData.descricao.trim() || null,
+      preco: preco,
+      secao: formData.secao as LocalMenuItem['secao'],
       destaque: formData.destaque,
-      imagem_url: formData.imagem_url || null,
+      imagem_url: formData.imagem_url.trim() || null,
     };
 
     if (editingItem) {
-      const result = localMenu.update(editingItem.id, {
-        ...data,
-        secao: data.secao as LocalMenuItem['secao'],
-      });
+      const result = localMenu.update(editingItem.id, data);
 
       if (!result.success) {
         toast.error(result.error || "Erro ao atualizar item");
@@ -96,10 +128,7 @@ export const EmentaTab = () => {
         loadItems();
       }
     } else {
-      const result = localMenu.create({
-        ...data,
-        secao: data.secao as LocalMenuItem['secao'],
-      });
+      const result = localMenu.create(data);
 
       if (!result.success) {
         toast.error(result.error || "Erro ao adicionar item");

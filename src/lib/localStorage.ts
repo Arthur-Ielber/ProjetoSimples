@@ -186,9 +186,17 @@ export const localMenu = {
         updated_at: new Date().toISOString(),
       };
       items.push(newItem);
-      localStorage.setItem(MENU_STORAGE_KEY, JSON.stringify(items));
+      const serialized = JSON.stringify(items);
+      localStorage.setItem(MENU_STORAGE_KEY, serialized);
+      
+      // Disparar evento customizado para atualizar outras partes da aplicação
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: MENU_STORAGE_KEY, action: 'create' } 
+      }));
+      
       return { success: true, data: newItem };
     } catch (error) {
+      console.error('Erro ao criar item:', error);
       return { success: false, error: 'Erro ao criar item' };
     }
   },
@@ -205,9 +213,17 @@ export const localMenu = {
         ...updates,
         updated_at: new Date().toISOString(),
       };
-      localStorage.setItem(MENU_STORAGE_KEY, JSON.stringify(items));
+      const serialized = JSON.stringify(items);
+      localStorage.setItem(MENU_STORAGE_KEY, serialized);
+      
+      // Disparar evento customizado para atualizar outras partes da aplicação
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: MENU_STORAGE_KEY, action: 'update' } 
+      }));
+      
       return { success: true, data: items[index] };
     } catch (error) {
+      console.error('Erro ao atualizar item:', error);
       return { success: false, error: 'Erro ao atualizar item' };
     }
   },
