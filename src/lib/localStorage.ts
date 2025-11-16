@@ -64,6 +64,7 @@ export interface MenuItem {
   preco: number;
   secao: 'Entradas' | 'Pratos Principais' | 'Sobremesas' | 'Bebidas';
   destaque: boolean;
+  ativo: boolean;
   imagem_url: string | null;
   created_at: string;
   updated_at: string;
@@ -79,7 +80,8 @@ const defaultMenuItems: MenuItem[] = [
     preco: 16.50,
     secao: 'Pratos Principais',
     destaque: true,
-    imagem_url: 'https://placehold.co/400x300/C84B31/FFF?text=Bacalhau',
+    ativo: true,
+    imagem_url: 'https://images.unsplash.com/photo-1621996346565-e3dbc646d9a9?w=400&h=300&fit=crop',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -90,7 +92,8 @@ const defaultMenuItems: MenuItem[] = [
     preco: 22.00,
     secao: 'Pratos Principais',
     destaque: true,
-    imagem_url: 'https://placehold.co/400x300/C84B31/FFF?text=Polvo',
+    ativo: true,
+    imagem_url: 'https://images.unsplash.com/photo-1551218808-94e220e084d2?w=400&h=300&fit=crop',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -101,7 +104,8 @@ const defaultMenuItems: MenuItem[] = [
     preco: 18.50,
     secao: 'Pratos Principais',
     destaque: true,
-    imagem_url: 'https://placehold.co/400x300/C84B31/FFF?text=Bife',
+    ativo: true,
+    imagem_url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=400&h=300&fit=crop',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -112,7 +116,8 @@ const defaultMenuItems: MenuItem[] = [
     preco: 4.50,
     secao: 'Entradas',
     destaque: false,
-    imagem_url: null,
+    ativo: true,
+    imagem_url: 'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=400&h=300&fit=crop',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -123,7 +128,8 @@ const defaultMenuItems: MenuItem[] = [
     preco: 6.00,
     secao: 'Entradas',
     destaque: false,
-    imagem_url: null,
+    ativo: true,
+    imagem_url: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=400&h=300&fit=crop',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -134,7 +140,8 @@ const defaultMenuItems: MenuItem[] = [
     preco: 1.20,
     secao: 'Sobremesas',
     destaque: false,
-    imagem_url: null,
+    ativo: true,
+    imagem_url: 'https://images.unsplash.com/photo-1606313564200-e75d5e30476c?w=400&h=300&fit=crop',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -145,18 +152,75 @@ const defaultMenuItems: MenuItem[] = [
     preco: 3.50,
     secao: 'Sobremesas',
     destaque: false,
-    imagem_url: null,
+    ativo: true,
+    imagem_url: 'https://images.unsplash.com/photo-1606312619070-d48d4eccf4c2?w=400&h=300&fit=crop',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
 ];
+
+// Função auxiliar para gerar URL de imagem aleatória baseada na seção
+const getRandomImageUrl = (secao: string): string => {
+  const imagesBySection: Record<string, string[]> = {
+    'Entradas': [
+      'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=400&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=400&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1551218808-94e220e084d2?w=400&h=300&fit=crop',
+    ],
+    'Pratos Principais': [
+      'https://images.unsplash.com/photo-1621996346565-e3dbc646d9a9?w=400&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1559339352-11d2aa30c8af?w=400&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1544025162-d76694265947?w=400&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=400&h=300&fit=crop',
+    ],
+    'Sobremesas': [
+      'https://images.unsplash.com/photo-1606313564200-e75d5e30476c?w=400&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1606312619070-d48d4eccf4c2?w=400&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1551024506-0bccd828d307?w=400&h=300&fit=crop',
+    ],
+    'Bebidas': [
+      'https://images.unsplash.com/photo-1513475382585-d06e58bcb0e0?w=400&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1546171753-97d7676e4602?w=400&h=300&fit=crop',
+      'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=400&h=300&fit=crop',
+    ],
+  };
+  
+  const images = imagesBySection[secao] || imagesBySection['Pratos Principais'];
+  return images[Math.floor(Math.random() * images.length)];
+};
 
 export const localMenu = {
   getAll: (): MenuItem[] => {
     try {
       const stored = localStorage.getItem(MENU_STORAGE_KEY);
       if (stored) {
-        return JSON.parse(stored);
+        const items = JSON.parse(stored);
+        // Migração: adicionar campo 'ativo' e 'imagem_url' para itens antigos que não têm
+        let needsSave = false;
+        const migratedItems = items.map((item: MenuItem) => {
+          const migrated: MenuItem = {
+            ...item,
+            ativo: item.ativo !== undefined ? item.ativo : true,
+          };
+          
+          // Se não tiver imagem, gerar uma aleatória baseada na seção
+          if (!migrated.imagem_url) {
+            migrated.imagem_url = getRandomImageUrl(migrated.secao);
+            needsSave = true;
+          }
+          
+          if (item.ativo === undefined) {
+            needsSave = true;
+          }
+          
+          return migrated;
+        });
+        
+        // Se houve migração, salvar de volta
+        if (needsSave) {
+          localStorage.setItem(MENU_STORAGE_KEY, JSON.stringify(migratedItems));
+        }
+        return migratedItems;
       }
       // Inicializar com itens padrão
       localStorage.setItem(MENU_STORAGE_KEY, JSON.stringify(defaultMenuItems));
@@ -173,7 +237,54 @@ export const localMenu = {
 
   getByDestaque: (): MenuItem[] => {
     const items = localMenu.getAll();
-    return items.filter(item => item.destaque);
+    // Filtrar pratos em destaque e ativos, ordenar por updated_at (mais recente primeiro)
+    return items
+      .filter(item => item.destaque && item.ativo)
+      .sort((a, b) => {
+        const dateA = new Date(a.updated_at).getTime();
+        const dateB = new Date(b.updated_at).getTime();
+        return dateB - dateA; // Ordem decrescente (mais recente primeiro)
+      });
+  },
+
+  getAtivos: (): MenuItem[] => {
+    const items = localMenu.getAll();
+    return items.filter(item => item.ativo !== false);
+  },
+
+  toggleAtivo: (id: string): { success: boolean; data?: MenuItem; error?: string } => {
+    try {
+      const items = localMenu.getAll();
+      const index = items.findIndex(item => item.id === id);
+      if (index === -1) {
+        return { success: false, error: 'Item não encontrado' };
+      }
+      
+      const updatedItem = {
+        ...items[index],
+        ativo: !items[index].ativo,
+        updated_at: new Date().toISOString(),
+      };
+      
+      items[index] = updatedItem;
+      const serialized = JSON.stringify(items);
+      localStorage.setItem(MENU_STORAGE_KEY, serialized);
+      
+      // Disparar evento customizado para atualizar outras partes da aplicação
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: MENU_STORAGE_KEY, action: 'update' } 
+      }));
+      
+      return { success: true, data: updatedItem };
+    } catch (error) {
+      console.error('Erro ao ativar/desativar item:', error);
+      return { success: false, error: 'Erro ao ativar/desativar item' };
+    }
+  },
+
+  // Gerar URL de imagem aleatória baseada na seção
+  getRandomImageUrl: (secao: string): string => {
+    return getRandomImageUrl(secao);
   },
 
   create: (item: Omit<MenuItem, 'id' | 'created_at' | 'updated_at'>): { success: boolean; data?: MenuItem; error?: string } => {
@@ -181,6 +292,9 @@ export const localMenu = {
       const items = localMenu.getAll();
       const newItem: MenuItem = {
         ...item,
+        ativo: item.ativo !== undefined ? item.ativo : true, // Por padrão, novos itens são ativos
+        // Se não tiver imagem, gerar uma aleatória baseada na seção
+        imagem_url: item.imagem_url || getRandomImageUrl(item.secao),
         id: crypto.randomUUID(),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -208,11 +322,16 @@ export const localMenu = {
       if (index === -1) {
         return { success: false, error: 'Item não encontrado' };
       }
-      items[index] = {
+      
+      // Se estiver marcando como destaque, atualizar updated_at para que apareça primeiro
+      const isMarkingAsDestaque = updates.destaque === true && !items[index].destaque;
+      const updatedItem = {
         ...items[index],
         ...updates,
-        updated_at: new Date().toISOString(),
+        updated_at: isMarkingAsDestaque ? new Date().toISOString() : new Date().toISOString(),
       };
+      
+      items[index] = updatedItem;
       const serialized = JSON.stringify(items);
       localStorage.setItem(MENU_STORAGE_KEY, serialized);
       
@@ -221,7 +340,7 @@ export const localMenu = {
         detail: { key: MENU_STORAGE_KEY, action: 'update' } 
       }));
       
-      return { success: true, data: items[index] };
+      return { success: true, data: updatedItem };
     } catch (error) {
       console.error('Erro ao atualizar item:', error);
       return { success: false, error: 'Erro ao atualizar item' };
@@ -241,6 +360,14 @@ export const localMenu = {
 };
 
 // ========== RESERVAS ==========
+export interface Observacao {
+  id: string;
+  mensagem: string;
+  autor: 'cliente' | 'admin';
+  autor_nome?: string; // Nome do admin que adicionou (opcional)
+  created_at: string;
+}
+
 export interface Reserva {
   id: string;
   nome: string;
@@ -250,7 +377,8 @@ export interface Reserva {
   data_reserva: string;
   hora_reserva: string;
   numero_pessoas: number;
-  estado: 'pendente' | 'confirmado' | 'rejeitado';
+  estado: 'pendente' | 'confirmado' | 'cancelado' | 'finalizado';
+  observacoes: Observacao[];
   created_at: string;
   updated_at: string;
 }
@@ -262,7 +390,30 @@ export const localReservas = {
     try {
       const stored = localStorage.getItem(RESERVAS_STORAGE_KEY);
       if (stored) {
-        return JSON.parse(stored);
+        const reservas = JSON.parse(stored);
+        // Migração: adicionar campo observacoes e atualizar estados antigos
+        let needsSave = false;
+        const migratedReservas = reservas.map((reserva: Reserva) => {
+          const updated: Reserva = { ...reserva };
+          
+          if (!updated.observacoes) {
+            updated.observacoes = [];
+            needsSave = true;
+          }
+          
+          // Migrar "rejeitado" para "cancelado"
+          if (updated.estado === 'rejeitado') {
+            updated.estado = 'cancelado';
+            needsSave = true;
+          }
+          
+          return updated;
+        });
+        
+        if (needsSave) {
+          localStorage.setItem(RESERVAS_STORAGE_KEY, JSON.stringify(migratedReservas));
+        }
+        return migratedReservas;
       }
       return [];
     } catch {
@@ -275,11 +426,24 @@ export const localReservas = {
     return reservas.find(reserva => reserva.id === id) || null;
   },
 
-  create: (reserva: Omit<Reserva, 'id' | 'estado' | 'created_at' | 'updated_at'>): { success: boolean; data?: Reserva; error?: string } => {
+  create: (reserva: Omit<Reserva, 'id' | 'estado' | 'observacoes' | 'created_at' | 'updated_at'>, observacaoInicial?: string): { success: boolean; data?: Reserva; error?: string } => {
     try {
       const reservas = localReservas.getAll();
+      const observacoes: Observacao[] = [];
+      
+      // Se houver observação inicial do cliente, adicionar
+      if (observacaoInicial && observacaoInicial.trim()) {
+        observacoes.push({
+          id: crypto.randomUUID(),
+          mensagem: observacaoInicial.trim(),
+          autor: 'cliente',
+          created_at: new Date().toISOString(),
+        });
+      }
+      
       const newReserva: Reserva = {
         ...reserva,
+        observacoes: observacoes,
         id: crypto.randomUUID(),
         estado: 'pendente',
         created_at: new Date().toISOString(),
@@ -287,6 +451,12 @@ export const localReservas = {
       };
       reservas.push(newReserva);
       localStorage.setItem(RESERVAS_STORAGE_KEY, JSON.stringify(reservas));
+      
+      // Disparar evento customizado
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: RESERVAS_STORAGE_KEY, action: 'create' } 
+      }));
+      
       return { success: true, data: newReserva };
     } catch (error) {
       return { success: false, error: 'Erro ao criar reserva' };
@@ -306,9 +476,52 @@ export const localReservas = {
         updated_at: new Date().toISOString(),
       };
       localStorage.setItem(RESERVAS_STORAGE_KEY, JSON.stringify(reservas));
+      
+      // Disparar evento customizado
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: RESERVAS_STORAGE_KEY, action: 'update' } 
+      }));
+      
       return { success: true, data: reservas[index] };
     } catch (error) {
       return { success: false, error: 'Erro ao atualizar reserva' };
+    }
+  },
+
+  // Adicionar observação a uma reserva
+  addObservacao: (reservaId: string, mensagem: string, autor: 'cliente' | 'admin', autorNome?: string): { success: boolean; data?: Observacao; error?: string } => {
+    try {
+      const reservas = localReservas.getAll();
+      const index = reservas.findIndex(reserva => reserva.id === reservaId);
+      if (index === -1) {
+        return { success: false, error: 'Reserva não encontrada' };
+      }
+      
+      const novaObservacao: Observacao = {
+        id: crypto.randomUUID(),
+        mensagem: mensagem.trim(),
+        autor,
+        autor_nome: autorNome,
+        created_at: new Date().toISOString(),
+      };
+      
+      if (!reservas[index].observacoes) {
+        reservas[index].observacoes = [];
+      }
+      
+      reservas[index].observacoes.push(novaObservacao);
+      reservas[index].updated_at = new Date().toISOString();
+      
+      localStorage.setItem(RESERVAS_STORAGE_KEY, JSON.stringify(reservas));
+      
+      // Disparar evento customizado
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: RESERVAS_STORAGE_KEY, action: 'update' } 
+      }));
+      
+      return { success: true, data: novaObservacao };
+    } catch (error) {
+      return { success: false, error: 'Erro ao adicionar observação' };
     }
   },
 

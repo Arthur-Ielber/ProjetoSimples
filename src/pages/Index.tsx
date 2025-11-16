@@ -6,6 +6,7 @@ import { localConfig, localMenu } from "@/lib/localStorage";
 import { Phone, Mail, Clock, MapPin, Home, UtensilsCrossed, Calendar, Menu, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface Config {
   telefone: string;
@@ -29,6 +30,8 @@ const Index = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [config, setConfig] = useState<Config | null>(null);
   const [pratosDestaque, setPratosDestaque] = useState<PratoDestaque[]>([]);
+  const [allDestaquesOpen, setAllDestaquesOpen] = useState(false);
+  const [totalDestaques, setTotalDestaques] = useState(0);
 
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -68,6 +71,8 @@ const Index = () => {
 
   const loadPratosDestaque = () => {
     const items = localMenu.getByDestaque();
+    setTotalDestaques(items.length);
+    // Pegar apenas os 3 primeiros para exibição
     const pratos = items.slice(0, 3).map(item => ({
       id: item.id,
       nome: item.nome,
@@ -76,6 +81,17 @@ const Index = () => {
       imagem_url: item.imagem_url,
     }));
     setPratosDestaque(pratos);
+  };
+  
+  const getAllPratosDestaque = (): PratoDestaque[] => {
+    const items = localMenu.getByDestaque();
+    return items.map(item => ({
+      id: item.id,
+      nome: item.nome,
+      descricao: item.descricao,
+      preco: item.preco,
+      imagem_url: item.imagem_url,
+    }));
   };
 
   return (
@@ -335,6 +351,19 @@ const Index = () => {
               </div>
             ))}
           </div>
+          
+          {totalDestaques > 3 && (
+            <div className="text-center mt-8">
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={() => setAllDestaquesOpen(true)}
+                className="shadow-soft"
+              >
+                Ver Todos os Pratos em Destaque ({totalDestaques})
+              </Button>
+            </div>
+          )}
         </div>
       </section>
 
@@ -385,6 +414,52 @@ const Index = () => {
 
       <MenuModal open={menuOpen} onOpenChange={setMenuOpen} />
       <ReservaModal open={reservaOpen} onOpenChange={setReservaOpen} />
+      
+      {/* Modal de Todos os Pratos Destaques */}
+      <Dialog open={allDestaquesOpen} onOpenChange={setAllDestaquesOpen}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-3xl font-serif text-primary">
+              Todos os Pratos em Destaque
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 py-4">
+            {getAllPratosDestaque().map((prato) => (
+              <div
+                key={prato.id}
+                className="gradient-card rounded-2xl overflow-hidden shadow-soft hover:shadow-elegant transition-all duration-300 hover:-translate-y-2 group"
+              >
+                <div className="aspect-[4/3] bg-muted overflow-hidden">
+                  {prato.imagem_url ? (
+                    <img
+                      src={prato.imagem_url}
+                      alt={prato.nome}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-primary/20 to-accent/20" />
+                  )}
+                </div>
+                <div className="p-6">
+                  <h3 className="text-xl font-serif font-semibold mb-2 text-foreground">
+                    {prato.nome}
+                  </h3>
+                  {prato.descricao && (
+                    <p className="text-muted-foreground text-sm mb-4">
+                      {prato.descricao}
+                    </p>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="text-2xl font-bold text-primary">
+                      €{prato.preco.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

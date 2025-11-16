@@ -22,14 +22,22 @@ const Admin = () => {
   });
 
   useEffect(() => {
+    let isMounted = true;
+    
     // Verificar se já está autenticado
     if (localAuth.isAuthenticated()) {
-      navigate("/dashboard");
-      return;
+      const user = localAuth.getCurrentUser();
+      // Permitir acesso ao dashboard tanto para admin quanto para atualizador
+      if (user && (user.role === "admin" || user.role === "atualizador") && isMounted) {
+        navigate("/dashboard");
+      }
     }
 
-    // Admin padrão já existe
-  }, [navigate]);
+    return () => {
+      isMounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Remover navigate das dependências para evitar loop
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -12,28 +12,51 @@ import { ConfigTab } from "@/components/dashboard/ConfigTab";
 const Dashboard = () => {
   const navigate = useNavigate();
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isAtualizador, setIsAtualizador] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+    
+    const checkAdminStatus = () => {
+      if (!localAuth.isAuthenticated()) {
+        if (isMounted) {
+          toast.error("Acesso negado. Faça login primeiro.");
+          navigate("/admin");
+        }
+        return;
+      }
+
+      const user = localAuth.getCurrentUser();
+      if (user) {
+        if (user.role === "admin") {
+          if (isMounted) setIsAdmin(true);
+        } else if (user.role === "atualizador") {
+          if (isMounted) setIsAtualizador(true);
+        } else {
+          if (isMounted) {
+            toast.error("Acesso negado. Permissões insuficientes.");
+            navigate("/admin");
+          }
+          return;
+        }
+      } else {
+        if (isMounted) {
+          toast.error("Acesso negado. Usuário não encontrado.");
+          navigate("/admin");
+        }
+        return;
+      }
+      if (isMounted) setLoading(false);
+    };
+
     checkAdminStatus();
-  }, [navigate]);
 
-  const checkAdminStatus = () => {
-    if (!localAuth.isAuthenticated()) {
-      toast.error("Acesso negado. Faça login primeiro.");
-      navigate("/admin");
-      return;
-    }
-
-    const user = localAuth.getCurrentUser();
-    if (user && user.role === "admin") {
-      setIsAdmin(true);
-    } else {
-      toast.error("Acesso negado. Apenas administradores.");
-      navigate("/admin");
-    }
-    setLoading(false);
-  };
+    return () => {
+      isMounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Remover navigate das dependências para evitar loop
 
   const handleLogout = () => {
     localAuth.logout();
@@ -52,7 +75,10 @@ const Dashboard = () => {
     );
   }
 
-  if (!isAdmin) return null;
+  // Permitir acesso tanto para admin quanto para atualizador
+  if (!isAdmin && !isAtualizador) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -70,10 +96,12 @@ const Dashboard = () => {
 
       <main className="container mx-auto px-6 py-8">
         <Tabs defaultValue="reservas" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3 max-w-2xl">
+          <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-3' : 'grid-cols-2'} max-w-2xl`}>
             <TabsTrigger value="reservas">Reservas</TabsTrigger>
             <TabsTrigger value="ementa">Ementa</TabsTrigger>
-            <TabsTrigger value="config">Configurações</TabsTrigger>
+            {isAdmin && (
+              <TabsTrigger value="config">Configurações</TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="reservas">
@@ -84,9 +112,11 @@ const Dashboard = () => {
             <EmentaTab />
           </TabsContent>
 
-          <TabsContent value="config">
-            <ConfigTab />
-          </TabsContent>
+          {isAdmin && (
+            <TabsContent value="config">
+              <ConfigTab />
+            </TabsContent>
+          )}
         </Tabs>
       </main>
     </div>

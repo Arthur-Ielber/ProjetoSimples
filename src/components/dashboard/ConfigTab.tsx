@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, Power, PowerOff } from "lucide-react";
+import { Loader2, Plus, Trash2, Power, PowerOff, UtensilsCrossed, Calendar, Info } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
@@ -43,6 +43,19 @@ export const ConfigTab = () => {
   };
 
   const handleAddAtualizador = () => {
+    // Validação de senha
+    if (newAtualizador.password.length < 6) {
+      toast.error("A senha deve ter pelo menos 6 caracteres");
+      return;
+    }
+
+    // Validação de email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(newAtualizador.email)) {
+      toast.error("Por favor, insira um email válido");
+      return;
+    }
+
     const result = localAuth.createAtualizador(newAtualizador.email, newAtualizador.password);
     if (result.success) {
       toast.success(result.message);
@@ -79,9 +92,23 @@ export const ConfigTab = () => {
 
   const loadConfig = () => {
     setLoading(true);
-    const data = localConfig.get();
-    setConfig(data);
-    setLoading(false);
+    try {
+      // localConfig.get() sempre retorna um config (cria padrão se não existir)
+      const data = localConfig.get();
+      setConfig(data);
+    } catch (error) {
+      console.error('Erro ao carregar configurações:', error);
+      toast.error('Erro ao carregar configurações');
+      // Tentar criar config padrão mesmo em caso de erro
+      try {
+        const defaultConfig = localConfig.get();
+        setConfig(defaultConfig);
+      } catch (e) {
+        console.error('Erro ao criar config padrão:', e);
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -116,7 +143,30 @@ export const ConfigTab = () => {
     );
   }
 
-  if (!config) return null;
+  // Se não houver config após o carregamento, mostrar mensagem de erro
+  if (!config && !loading) {
+    return (
+      <Card className="shadow-soft">
+        <CardContent className="py-12">
+          <div className="text-center text-muted-foreground">
+            <p>Erro ao carregar configurações. Por favor, recarregue a página.</p>
+            <Button onClick={loadConfig} className="mt-4">
+              Tentar Novamente
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Se ainda estiver carregando ou config for null, mostrar loading
+  if (!config) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <>
@@ -190,20 +240,46 @@ export const ConfigTab = () => {
       <Card className="shadow-soft mt-6">
         <CardHeader>
           <div className="flex justify-between items-center">
-            <CardTitle>Gerenciar Atualizadores</CardTitle>
+            <div>
+              <CardTitle>Gerenciar Usuários</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Crie usuários que podem editar a ementa e gerenciar reservas
+              </p>
+            </div>
             <Button
               variant="outline"
               size="sm"
               onClick={() => setShowAddForm(!showAddForm)}
             >
               <Plus className="h-4 w-4 mr-2" />
-              Novo Atualizador
+              Novo Usuário
             </Button>
           </div>
         </CardHeader>
         <CardContent>
+          <div className="mb-6 p-4 bg-accent/5 rounded-lg border border-accent/20">
+            <div className="flex items-start gap-3">
+              <Info className="h-5 w-5 text-primary mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-foreground mb-2">
+                  Permissões dos Usuários Criados:
+                </p>
+                <ul className="text-sm text-muted-foreground space-y-1">
+                  <li className="flex items-center gap-2">
+                    <UtensilsCrossed className="h-4 w-4" />
+                    Editar ementa (adicionar, editar e remover pratos)
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4" />
+                    Gerenciar reservas (aceitar ou recusar)
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
           {showAddForm && (
-            <div className="mb-6 p-4 border rounded-lg space-y-4">
+            <div className="mb-6 p-4 border rounded-lg space-y-4 bg-card">
               <div>
                 <Label htmlFor="new-email">Email</Label>
                 <Input
@@ -212,6 +288,7 @@ export const ConfigTab = () => {
                   value={newAtualizador.email}
                   onChange={(e) => setNewAtualizador({ ...newAtualizador, email: e.target.value })}
                   placeholder="email@exemplo.com"
+                  required
                 />
               </div>
               <div>
@@ -222,11 +299,13 @@ export const ConfigTab = () => {
                   value={newAtualizador.password}
                   onChange={(e) => setNewAtualizador({ ...newAtualizador, password: e.target.value })}
                   placeholder="Mínimo 6 caracteres"
+                  required
+                  minLength={6}
                 />
               </div>
               <div className="flex gap-2">
-                <Button onClick={handleAddAtualizador} size="sm">
-                  Criar
+                <Button onClick={handleAddAtualizador} size="sm" disabled={!newAtualizador.email || !newAtualizador.password || newAtualizador.password.length < 6}>
+                  Criar Usuário
                 </Button>
                 <Button
                   variant="outline"
@@ -244,9 +323,14 @@ export const ConfigTab = () => {
 
           <div className="space-y-2">
             {atualizadores.length === 0 ? (
-              <p className="text-muted-foreground text-center py-4">
-                Nenhum atualizador cadastrado
-              </p>
+              <div className="text-center py-8">
+                <p className="text-muted-foreground mb-2">
+                  Nenhum usuário cadastrado
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Clique em "Novo Usuário" para criar um usuário que pode editar a ementa e gerenciar reservas
+                </p>
+              </div>
             ) : (
               atualizadores.map((atualizador) => (
                 <div
@@ -254,15 +338,23 @@ export const ConfigTab = () => {
                   className="flex items-center justify-between p-3 border rounded-lg"
                 >
                   <div className="flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 mb-1">
                       <p className="font-medium">{atualizador.email}</p>
                       <Badge variant={atualizador.active ? "default" : "secondary"}>
                         {atualizador.active ? "Ativo" : "Inativo"}
                       </Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      Criado em: {new Date(atualizador.createdAt).toLocaleDateString("pt-PT")}
-                    </p>
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                      <span>Criado em: {new Date(atualizador.createdAt).toLocaleDateString("pt-PT")}</span>
+                      <span className="flex items-center gap-1">
+                        <UtensilsCrossed className="h-3 w-3" />
+                        Ementa
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        Reservas
+                      </span>
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <Button

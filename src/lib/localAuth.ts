@@ -46,7 +46,7 @@ export const localAuth = {
       const adminData = localStorage.getItem(ADMIN_STORAGE_KEY);
       if (!adminData) {
         initializeDefaultAdmin();
-        return this.getDefaultAdmin();
+        return localAuth.getDefaultAdmin();
       }
       return JSON.parse(adminData);
     } catch {
@@ -180,8 +180,22 @@ export const localAuth = {
 
   // Verificar se é admin
   isAdmin: (): boolean => {
-    const user = this.getCurrentUser();
+    const user = localAuth.getCurrentUser();
     return user?.role === 'admin';
+  },
+
+  // Verificar se é admin principal (não atualizador)
+  isMainAdmin: (): boolean => {
+    const user = localAuth.getCurrentUser();
+    if (!user || user.role !== 'admin') return false;
+    
+    // Verificar se é o admin padrão (admin principal)
+    const adminData = localStorage.getItem(ADMIN_STORAGE_KEY);
+    if (adminData) {
+      const admin: User = JSON.parse(adminData);
+      return user.id === admin.id;
+    }
+    return false;
   },
 
   // Gerenciar atualizadores (apenas admin)
@@ -197,12 +211,12 @@ export const localAuth = {
 
   // Criar atualizador (apenas admin)
   createAtualizador: (email: string, password: string): { success: boolean; message: string } => {
-    if (!this.isAdmin()) {
+    if (!localAuth.isAdmin()) {
       return { success: false, message: 'Apenas administradores podem criar atualizadores' };
     }
 
     try {
-      const updaters = this.getAtualizadores();
+      const updaters = localAuth.getAtualizadores();
       
       // Verificar se email já existe
       if (updaters.some(u => u.email.toLowerCase().trim() === email.toLowerCase().trim())) {
@@ -228,12 +242,12 @@ export const localAuth = {
 
   // Ativar/Desativar atualizador (apenas admin)
   toggleAtualizador: (id: string): { success: boolean; message: string } => {
-    if (!this.isAdmin()) {
+    if (!localAuth.isAdmin()) {
       return { success: false, message: 'Apenas administradores podem gerenciar atualizadores' };
     }
 
     try {
-      const updaters = this.getAtualizadores();
+      const updaters = localAuth.getAtualizadores();
       const index = updaters.findIndex(u => u.id === id);
       
       if (index === -1) {
@@ -252,12 +266,12 @@ export const localAuth = {
 
   // Deletar atualizador (apenas admin)
   deleteAtualizador: (id: string): { success: boolean; message: string } => {
-    if (!this.isAdmin()) {
+    if (!localAuth.isAdmin()) {
       return { success: false, message: 'Apenas administradores podem deletar atualizadores' };
     }
 
     try {
-      const updaters = this.getAtualizadores().filter(u => u.id !== id);
+      const updaters = localAuth.getAtualizadores().filter(u => u.id !== id);
       localStorage.setItem(UPDATERS_STORAGE_KEY, JSON.stringify(updaters));
       return { success: true, message: 'Atualizador deletado com sucesso!' };
     } catch (error) {

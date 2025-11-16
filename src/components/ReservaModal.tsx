@@ -3,7 +3,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { localReservas } from "@/lib/localStorage";
+import { emailService } from "@/lib/emailService";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -32,6 +34,7 @@ export const ReservaModal = ({ open, onOpenChange }: ReservaModalProps) => {
     data_reserva: "",
     hora_reserva: "",
     numero_pessoas: 2,
+    observacoes: "",
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -41,22 +44,49 @@ export const ReservaModal = ({ open, onOpenChange }: ReservaModalProps) => {
     try {
       const validated = reservaSchema.parse(formData);
 
-      const result = localReservas.create({
-        nome: validated.nome,
-        apelido: validated.apelido,
-        telefone: validated.telefone,
-        email: validated.email,
-        data_reserva: validated.data_reserva,
-        hora_reserva: validated.hora_reserva,
-        numero_pessoas: validated.numero_pessoas,
-      });
+      const result = localReservas.create(
+        {
+          nome: validated.nome,
+          apelido: validated.apelido,
+          telefone: validated.telefone,
+          email: validated.email,
+          data_reserva: validated.data_reserva,
+          hora_reserva: validated.hora_reserva,
+          numero_pessoas: validated.numero_pessoas,
+        },
+        formData.observacoes.trim() || undefined
+      );
 
       if (!result.success) {
         throw new Error(result.error || "Erro ao criar reserva");
       }
 
+      // Enviar email de confirmação de recebimento
+      try {
+        console.log('Enviando email de confirmação para:', validated.email);
+        const emailResult = await emailService.sendReservationConfirmation({
+          email: validated.email,
+          nome: validated.nome,
+          apelido: validated.apelido,
+          data_reserva: validated.data_reserva,
+          hora_reserva: validated.hora_reserva,
+          numero_pessoas: validated.numero_pessoas,
+        });
+
+        if (emailResult.success) {
+          console.log('Email de confirmação enviado com sucesso');
+        } else {
+          console.error('Erro ao enviar email de confirmação:', emailResult.error);
+          toast.warning("Reserva criada, mas não foi possível enviar o email de confirmação.");
+        }
+      } catch (error) {
+        console.error('Erro ao enviar email de confirmação:', error);
+        toast.warning("Reserva criada, mas houve um erro ao enviar o email de confirmação.");
+        // Não bloquear a criação da reserva se o email falhar
+      }
+
       toast.success("Pedido de reserva enviado com sucesso!", {
-        description: "Receberá um email assim que confirmarmos a sua reserva.",
+        description: "Receberá um email de confirmação em breve.",
       });
 
       onOpenChange(false);
@@ -68,6 +98,7 @@ export const ReservaModal = ({ open, onOpenChange }: ReservaModalProps) => {
         data_reserva: "",
         hora_reserva: "",
         numero_pessoas: 2,
+        observacoes: "",
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -176,6 +207,21 @@ export const ReservaModal = ({ open, onOpenChange }: ReservaModalProps) => {
               max={20}
               required
             />
+          </div>
+
+          <div>
+            <Label htmlFor="observacoes">Observações (opcional)</Label>
+            <Textarea
+              id="observacoes"
+              value={formData.observacoes}
+              onChange={(e) => setFormData({ ...formData, observacoes: e.target.value })}
+              placeholder="Ex: Mesa perto da janela, aniversário, restrições alimentares..."
+              rows={3}
+              maxLength={500}
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              {formData.observacoes.length}/500 caracteres
+            </p>
           </div>
 
           <Button type="submit" className="w-full" disabled={loading}>

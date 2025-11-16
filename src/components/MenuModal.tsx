@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { localMenu } from "@/lib/localStorage";
 import { Loader2 } from "lucide-react";
@@ -9,6 +9,7 @@ interface MenuItem {
   descricao: string | null;
   preco: number;
   secao: string;
+  imagem_url: string | null;
 }
 
 interface MenuModalProps {
@@ -20,17 +21,12 @@ export const MenuModal = ({ open, onOpenChange }: MenuModalProps) => {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (open) {
-      loadMenu();
-    }
-  }, [open]);
-
-  const loadMenu = () => {
+  const loadMenu = useCallback(() => {
     setLoading(true);
-    const items = localMenu.getAll();
-    // Ordenar por seção e nome
-    const sorted = items.sort((a, b) => {
+    // Obter apenas pratos ativos
+    const items = localMenu.getAtivos();
+    // Ordenar por seção e nome (criar cópia para não modificar o original)
+    const sorted = [...items].sort((a, b) => {
       if (a.secao !== b.secao) {
         return a.secao.localeCompare(b.secao);
       }
@@ -38,7 +34,35 @@ export const MenuModal = ({ open, onOpenChange }: MenuModalProps) => {
     });
     setMenuItems(sorted);
     setLoading(false);
-  };
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      loadMenu();
+    }
+    
+    // Listener para atualizar quando houver mudanças no localStorage
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'table_menu_ementa' && open) {
+        loadMenu();
+      }
+    };
+    
+    // Listener para atualizar quando houver mudanças na mesma aba
+    const handleCustomStorageChange = (e: CustomEvent) => {
+      if (e.detail?.key === 'table_menu_ementa' && open) {
+        loadMenu();
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('localStorageChange', handleCustomStorageChange as EventListener);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('localStorageChange', handleCustomStorageChange as EventListener);
+    };
+  }, [open, loadMenu]);
 
   const sections = ["Entradas", "Pratos Principais", "Sobremesas", "Bebidas"];
 
@@ -68,18 +92,34 @@ export const MenuModal = ({ open, onOpenChange }: MenuModalProps) => {
                   </h3>
                   <div className="space-y-4">
                     {items.map((item) => (
-                      <div key={item.id} className="flex justify-between items-start gap-4">
-                        <div className="flex-1">
-                          <h4 className="font-semibold text-foreground">{item.nome}</h4>
-                          {item.descricao && (
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {item.descricao}
-                            </p>
-                          )}
+                      <div key={item.id} className="flex gap-4 items-start">
+                        {/* Imagem do prato */}
+                        {item.imagem_url && (
+                          <div className="flex-shrink-0 w-24 h-24 rounded-lg overflow-hidden bg-muted">
+                            <img
+                              src={item.imagem_url}
+                              alt={item.nome}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                // Fallback se a imagem não carregar
+                                (e.target as HTMLImageElement).style.display = 'none';
+                              }}
+                            />
+                          </div>
+                        )}
+                        <div className="flex-1 flex justify-between items-start gap-4">
+                          <div className="flex-1">
+                            <h4 className="font-semibold text-foreground">{item.nome}</h4>
+                            {item.descricao && (
+                              <p className="text-sm text-muted-foreground mt-1">
+                                {item.descricao}
+                              </p>
+                            )}
+                          </div>
+                          <span className="font-semibold text-primary whitespace-nowrap">
+                            €{item.preco.toFixed(2)}
+                          </span>
                         </div>
-                        <span className="font-semibold text-primary whitespace-nowrap">
-                          €{item.preco.toFixed(2)}
-                        </span>
                       </div>
                     ))}
                   </div>

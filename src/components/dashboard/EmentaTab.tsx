@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { localMenu, MenuItem as LocalMenuItem } from "@/lib/localStorage";
+import { localAuth } from "@/lib/localAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,9 +8,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2, Power, PowerOff, Upload, X, Image as ImageIcon } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 
 type MenuItem = LocalMenuItem;
 
@@ -26,6 +29,9 @@ export const EmentaTab = () => {
     destaque: false,
     imagem_url: "",
   });
+  const [imageSource, setImageSource] = useState<"url" | "upload">("url");
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   useEffect(() => {
     loadItems();
@@ -70,14 +76,19 @@ export const EmentaTab = () => {
   const handleOpenDialog = (item?: MenuItem) => {
     if (item) {
       setEditingItem(item);
+      const hasImage = !!item.imagem_url;
+      const isDataUrl = hasImage && item.imagem_url?.startsWith('data:');
+      setImageSource(isDataUrl ? "upload" : "url");
       setFormData({
         nome: item.nome,
         descricao: item.descricao || "",
         preco: item.preco.toString(),
         secao: item.secao,
         destaque: item.destaque,
-        imagem_url: item.imagem_url || "",
+        imagem_url: isDataUrl ? "" : (item.imagem_url || ""),
       });
+      setUploadedImage(isDataUrl ? item.imagem_url : null);
+      setPreviewImage(item.imagem_url);
     } else {
       setEditingItem(null);
       setFormData({
@@ -88,8 +99,46 @@ export const EmentaTab = () => {
         destaque: false,
         imagem_url: "",
       });
+      setImageSource("url");
+      setUploadedImage(null);
+      setPreviewImage(null);
     }
     setDialogOpen(true);
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validar tipo de arquivo
+    if (!file.type.startsWith('image/')) {
+      toast.error("Por favor, selecione um ficheiro de imagem válido");
+      return;
+    }
+
+    // Validar tamanho (máximo 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("A imagem deve ter no máximo 5MB");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result as string;
+      setUploadedImage(base64String);
+      setPreviewImage(base64String);
+      setFormData({ ...formData, imagem_url: "" }); // Limpar URL se houver
+    };
+    reader.onerror = () => {
+      toast.error("Erro ao carregar a imagem");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveImage = () => {
+    setUploadedImage(null);
+    setPreviewImage(null);
+    setFormData({ ...formData, imagem_url: "" });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -108,13 +157,18 @@ export const EmentaTab = () => {
       return;
     }
 
+    // Usar imagem carregada se houver, senão usar URL
+    const finalImageUrl = imageSource === "upload" && uploadedImage 
+      ? uploadedImage 
+      : (formData.imagem_url.trim() || null);
+
     const data = {
       nome: formData.nome.trim(),
       descricao: formData.descricao.trim() || null,
       preco: preco,
       secao: formData.secao as LocalMenuItem['secao'],
       destaque: formData.destaque,
-      imagem_url: formData.imagem_url.trim() || null,
+      imagem_url: finalImageUrl,
     };
 
     if (editingItem) {
@@ -141,6 +195,12 @@ export const EmentaTab = () => {
   };
 
   const handleDelete = (id: string) => {
+    // Apenas o admin principal pode excluir pratos
+    if (!localAuth.isMainAdmin()) {
+      toast.error("Apenas o administrador principal pode excluir pratos");
+      return;
+    }
+
     if (!confirm("Tem certeza que deseja remover este item?")) return;
 
     const result = localMenu.delete(id);
@@ -149,6 +209,25 @@ export const EmentaTab = () => {
       toast.error(result.error || "Erro ao remover item");
     } else {
       toast.success("Item removido com sucesso!");
+      loadItems();
+    }
+  };
+
+  const handleToggleAtivo = (id: string) => {
+    // Permitir que admin e atualizadores ativem/desativem pratos
+    const user = localAuth.getCurrentUser();
+    if (!user || (user.role !== 'admin' && user.role !== 'atualizador')) {
+      toast.error("Acesso negado. Apenas administradores e atualizadores podem ativar/desativar pratos.");
+      return;
+    }
+
+    const result = localMenu.toggleAtivo(id);
+
+    if (!result.success) {
+      toast.error(result.error || "Erro ao ativar/desativar item");
+    } else {
+      const item = result.data;
+      toast.success(`Item ${item?.ativo ? 'ativado' : 'desativado'} com sucesso!`);
       loadItems();
     }
   };
@@ -179,18 +258,43 @@ export const EmentaTab = () => {
                 </h3>
                 <div className="grid gap-4">
                   {sectionItems.map((item) => (
-                    <Card key={item.id} className="shadow-soft">
+                    <Card key={item.id} className={`shadow-soft ${!item.ativo ? 'opacity-60' : ''}`}>
                       <CardHeader className="pb-3">
                         <div className="flex justify-between items-start">
                           <div>
-                            <CardTitle className="text-lg">{item.nome}</CardTitle>
-                            {item.destaque && (
-                              <span className="text-xs text-accent font-medium">
-                                ⭐ Destaque
-                              </span>
-                            )}
+                            <div className="flex items-center gap-2">
+                              <CardTitle className="text-lg">{item.nome}</CardTitle>
+                              {!item.ativo && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Inativo
+                                </Badge>
+                              )}
+                              {item.destaque && item.ativo && (
+                                <span className="text-xs text-accent font-medium">
+                                  ⭐ Destaque
+                                </span>
+                              )}
+                            </div>
                           </div>
                           <div className="flex gap-2">
+                            {/* Botão de ativar/desativar - disponível para admin e atualizadores */}
+                            {(() => {
+                              const user = localAuth.getCurrentUser();
+                              return user && (user.role === 'admin' || user.role === 'atualizador');
+                            })() && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleToggleAtivo(item.id)}
+                                title={item.ativo ? "Desativar prato" : "Ativar prato"}
+                              >
+                                {item.ativo ? (
+                                  <PowerOff className="h-4 w-4" />
+                                ) : (
+                                  <Power className="h-4 w-4" />
+                                )}
+                              </Button>
+                            )}
                             <Button
                               size="sm"
                               variant="outline"
@@ -198,13 +302,17 @@ export const EmentaTab = () => {
                             >
                               <Pencil className="h-4 w-4" />
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => handleDelete(item.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {/* Botão de excluir - apenas para admin principal */}
+                            {localAuth.isMainAdmin() && (
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => handleDelete(item.id)}
+                                title="Excluir prato (apenas admin principal)"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </div>
                       </CardHeader>
@@ -289,13 +397,93 @@ export const EmentaTab = () => {
             </div>
 
             <div>
-              <Label htmlFor="imagem_url">URL da Imagem (opcional)</Label>
-              <Input
-                id="imagem_url"
-                type="url"
-                value={formData.imagem_url}
-                onChange={(e) => setFormData({ ...formData, imagem_url: e.target.value })}
-              />
+              <Label>Imagem do Prato (opcional)</Label>
+              <Tabs value={imageSource} onValueChange={(v) => setImageSource(v as "url" | "upload")} className="mt-2">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="url">URL</TabsTrigger>
+                  <TabsTrigger value="upload">Carregar Ficheiro</TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="url" className="space-y-2 mt-2">
+                  <Input
+                    id="imagem_url"
+                    type="url"
+                    value={formData.imagem_url}
+                    onChange={(e) => {
+                      setFormData({ ...formData, imagem_url: e.target.value });
+                      setPreviewImage(e.target.value || null);
+                    }}
+                    placeholder="https://exemplo.com/imagem.jpg"
+                  />
+                  {previewImage && previewImage.startsWith('http') && (
+                    <div className="mt-2">
+                      <img 
+                        src={previewImage} 
+                        alt="Preview" 
+                        className="w-full h-32 object-cover rounded-lg border"
+                        onError={() => setPreviewImage(null)}
+                      />
+                    </div>
+                  )}
+                </TabsContent>
+                
+                <TabsContent value="upload" className="space-y-2 mt-2">
+                  {uploadedImage ? (
+                    <div className="space-y-2">
+                      <div className="relative">
+                        <img 
+                          src={uploadedImage} 
+                          alt="Preview" 
+                          className="w-full h-48 object-cover rounded-lg border"
+                        />
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          onClick={handleRemoveImage}
+                          className="absolute top-2 right-2"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground text-center">
+                        Imagem carregada com sucesso
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => document.getElementById('imagem_file')?.click()}
+                        className="w-full"
+                      >
+                        <Upload className="h-4 w-4 mr-2" />
+                        Trocar Imagem
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary/50 transition-colors cursor-pointer"
+                        onClick={() => document.getElementById('imagem_file')?.click()}
+                      >
+                        <ImageIcon className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                        <p className="text-sm font-medium text-foreground mb-1">
+                          Clique para selecionar uma imagem
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Formatos: JPG, PNG, GIF | Máximo 5MB
+                        </p>
+                      </div>
+                      <Input
+                        id="imagem_file"
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                      />
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
             </div>
 
             <div className="flex items-center space-x-2">
