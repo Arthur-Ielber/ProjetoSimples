@@ -1,5 +1,7 @@
 # Welcome to your Lovable project
 
+> Configuração de múltiplas contas Git realizada
+
 ## Project info
 
 **URL**: https://lovable.dev/projects/b8b3996a-af3e-4cb2-9755-e964b990abd3
