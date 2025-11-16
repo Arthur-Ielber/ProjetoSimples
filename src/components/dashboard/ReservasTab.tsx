@@ -1,23 +1,12 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { localReservas, Reserva as LocalReserva } from "@/lib/localStorage";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Check, X, Loader2 } from "lucide-react";
 
-interface Reserva {
-  id: string;
-  nome: string;
-  apelido: string;
-  telefone: string;
-  email: string;
-  data_reserva: string;
-  hora_reserva: string;
-  numero_pessoas: number;
-  estado: "pendente" | "confirmado" | "rejeitado";
-  created_at: string;
-}
+type Reserva = LocalReserva;
 
 export const ReservasTab = () => {
   const [reservas, setReservas] = useState<Reserva[]>([]);
@@ -26,53 +15,35 @@ export const ReservasTab = () => {
 
   useEffect(() => {
     loadReservas();
-
-    const channel = supabase
-      .channel("reservas_changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "reservas",
-        },
-        () => {
-          loadReservas();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    // Atualizar a cada 2 segundos para simular tempo real (opcional)
+    const interval = setInterval(loadReservas, 2000);
+    return () => clearInterval(interval);
   }, []);
 
-  const loadReservas = async () => {
+  const loadReservas = () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("reservas")
-      .select("*")
-      .order("data_reserva", { ascending: true })
-      .order("hora_reserva", { ascending: true });
-
-    if (!error && data) {
-      setReservas(data as Reserva[]);
-    }
+    const data = localReservas.getAll();
+    // Ordenar por data e hora
+    const sorted = data.sort((a, b) => {
+      if (a.data_reserva !== b.data_reserva) {
+        return a.data_reserva.localeCompare(b.data_reserva);
+      }
+      return a.hora_reserva.localeCompare(b.hora_reserva);
+    });
+    setReservas(sorted);
     setLoading(false);
   };
 
-  const updateStatus = async (id: string, estado: "confirmado" | "rejeitado") => {
-    const { error } = await supabase
-      .from("reservas")
-      .update({ estado })
-      .eq("id", id);
+  const updateStatus = (id: string, estado: "confirmado" | "rejeitado") => {
+    const result = localReservas.update(id, { estado });
 
-    if (error) {
-      toast.error("Erro ao atualizar reserva");
+    if (!result.success) {
+      toast.error(result.error || "Erro ao atualizar reserva");
     } else {
       toast.success(
         estado === "confirmado" ? "Reserva confirmada!" : "Reserva rejeitada!"
       );
+      loadReservas();
     }
   };
 

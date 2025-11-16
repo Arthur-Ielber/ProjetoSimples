@@ -4,10 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { supabase } from "@/integrations/supabase/client";
+import { localAuth } from "@/lib/localAuth";
 import { toast } from "sonner";
 import { z } from "zod";
-import { Session } from "@supabase/supabase-js";
 
 const authSchema = z.object({
   email: z.string().email("Email inválido"),
@@ -16,8 +15,6 @@ const authSchema = z.object({
 
 const Admin = () => {
   const navigate = useNavigate();
-  const [session, setSession] = useState<Session | null>(null);
-  const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     email: "",
@@ -25,39 +22,14 @@ const Admin = () => {
   });
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        if (session) {
-          setTimeout(() => {
-            checkAdminRole(session.user.id);
-          }, 0);
-        }
-      }
-    );
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) {
-        checkAdminRole(session.user.id);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  const checkAdminRole = async (userId: string) => {
-    const { data } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userId)
-      .eq("role", "admin")
-      .maybeSingle();
-
-    if (data) {
+    // Verificar se já está autenticado
+    if (localAuth.isAuthenticated()) {
       navigate("/dashboard");
+      return;
     }
-  };
+
+    // Admin padrão já existe
+  }, [navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,38 +38,15 @@ const Admin = () => {
     try {
       const validated = authSchema.parse(formData);
 
-      if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({
-          email: validated.email,
-          password: validated.password,
-        });
-
-        if (error) {
-          if (error.message.includes("Invalid")) {
-            throw new Error("Email ou senha incorretos");
-          }
-          throw error;
-        }
-
-        toast.success("Login realizado com sucesso!");
-      } else {
-        const { error } = await supabase.auth.signUp({
-          email: validated.email,
-          password: validated.password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/`,
-          },
-        });
-
-        if (error) {
-          if (error.message.includes("already")) {
-            throw new Error("Este email já está registado");
-          }
-          throw error;
-        }
-
-        toast.success("Conta criada! Entre em contacto para obter privilégios de admin.");
+      // Fazer login
+      const result = localAuth.login(validated.email, validated.password);
+      
+      if (!result.success) {
+        throw new Error(result.message);
       }
+
+      toast.success(result.message);
+      navigate("/dashboard");
     } catch (error) {
       if (error instanceof z.ZodError) {
         toast.error(error.errors[0].message);
@@ -116,8 +65,18 @@ const Admin = () => {
       <Card className="w-full max-w-md shadow-elegant">
         <CardHeader>
           <CardTitle className="text-3xl font-serif text-center text-primary">
-            {isLogin ? "Login Admin" : "Criar Conta"}
+            Login Admin
           </CardTitle>
+          <div className="mt-4 p-4 bg-muted rounded-lg border border-dashed">
+            <p className="text-sm font-semibold text-center mb-2">Credenciais de Acesso:</p>
+            <div className="text-xs space-y-1 text-center">
+              <p><span className="font-medium">Email:</span> admin@admin.com</p>
+              <p><span className="font-medium">Senha:</span> Admin@123!</p>
+            </div>
+            <p className="text-xs text-muted-foreground text-center mt-2 italic">
+              (Esta informação será removida em breve)
+            </p>
+          </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -144,16 +103,7 @@ const Admin = () => {
             </div>
 
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "A processar..." : isLogin ? "Entrar" : "Criar Conta"}
-            </Button>
-
-            <Button
-              type="button"
-              variant="ghost"
-              className="w-full"
-              onClick={() => setIsLogin(!isLogin)}
-            >
-              {isLogin ? "Criar nova conta" : "Já tenho conta"}
+              {loading ? "A processar..." : "Entrar"}
             </Button>
 
             <Button

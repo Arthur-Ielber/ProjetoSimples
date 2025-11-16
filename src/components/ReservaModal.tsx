@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
+import { localReservas } from "@/lib/localStorage";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -41,7 +41,7 @@ export const ReservaModal = ({ open, onOpenChange }: ReservaModalProps) => {
     try {
       const validated = reservaSchema.parse(formData);
 
-      const { error } = await supabase.from("reservas").insert([{
+      const result = localReservas.create({
         nome: validated.nome,
         apelido: validated.apelido,
         telefone: validated.telefone,
@@ -49,9 +49,11 @@ export const ReservaModal = ({ open, onOpenChange }: ReservaModalProps) => {
         data_reserva: validated.data_reserva,
         hora_reserva: validated.hora_reserva,
         numero_pessoas: validated.numero_pessoas,
-      }]);
+      });
 
-      if (error) throw error;
+      if (!result.success) {
+        throw new Error(result.error || "Erro ao criar reserva");
+      }
 
       toast.success("Pedido de reserva enviado com sucesso!", {
         description: "Receberá um email assim que confirmarmos a sua reserva.",

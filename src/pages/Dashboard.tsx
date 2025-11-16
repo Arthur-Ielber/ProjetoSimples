@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { localAuth } from "@/lib/localAuth";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
@@ -8,49 +8,25 @@ import { LogOut } from "lucide-react";
 import { ReservasTab } from "@/components/dashboard/ReservasTab";
 import { EmentaTab } from "@/components/dashboard/EmentaTab";
 import { ConfigTab } from "@/components/dashboard/ConfigTab";
-import { Session } from "@supabase/supabase-js";
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const [session, setSession] = useState<Session | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        if (session) {
-          setTimeout(() => {
-            checkAdminStatus(session.user.id);
-          }, 0);
-        } else {
-          navigate("/admin");
-        }
-      }
-    );
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) {
-        checkAdminStatus(session.user.id);
-      } else {
-        navigate("/admin");
-      }
-    });
-
-    return () => subscription.unsubscribe();
+    checkAdminStatus();
   }, [navigate]);
 
-  const checkAdminStatus = async (userId: string) => {
-    const { data } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userId)
-      .eq("role", "admin")
-      .maybeSingle();
+  const checkAdminStatus = () => {
+    if (!localAuth.isAuthenticated()) {
+      toast.error("Acesso negado. Faça login primeiro.");
+      navigate("/admin");
+      return;
+    }
 
-    if (data) {
+    const user = localAuth.getCurrentUser();
+    if (user && user.role === "admin") {
       setIsAdmin(true);
     } else {
       toast.error("Acesso negado. Apenas administradores.");
@@ -59,8 +35,8 @@ const Dashboard = () => {
     setLoading(false);
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
+  const handleLogout = () => {
+    localAuth.logout();
     toast.success("Logout realizado com sucesso!");
     navigate("/admin");
   };

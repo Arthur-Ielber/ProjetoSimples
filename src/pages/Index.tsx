@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { MenuModal } from "@/components/MenuModal";
 import { ReservaModal } from "@/components/ReservaModal";
-import { supabase } from "@/integrations/supabase/client";
-import { Phone, Mail, Clock, MapPin, Home, UtensilsCrossed, Calendar, LogIn, Menu, X } from "lucide-react";
+import { localConfig, localMenu } from "@/lib/localStorage";
+import { Phone, Mail, Clock, MapPin, Home, UtensilsCrossed, Calendar, Menu, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
@@ -39,18 +39,21 @@ const Index = () => {
     loadPratosDestaque();
   }, []);
 
-  const loadConfig = async () => {
-    const { data } = await supabase.from("configuracoes").select("*").single();
-    if (data) setConfig(data);
+  const loadConfig = () => {
+    const data = localConfig.get();
+    setConfig(data);
   };
 
-  const loadPratosDestaque = async () => {
-    const { data } = await supabase
-      .from("ementa")
-      .select("id, nome, descricao, preco, imagem_url")
-      .eq("destaque", true)
-      .limit(3);
-    if (data) setPratosDestaque(data);
+  const loadPratosDestaque = () => {
+    const items = localMenu.getByDestaque();
+    const pratos = items.slice(0, 3).map(item => ({
+      id: item.id,
+      nome: item.nome,
+      descricao: item.descricao,
+      preco: item.preco,
+      imagem_url: item.imagem_url,
+    }));
+    setPratosDestaque(pratos);
   };
 
   return (
@@ -98,20 +101,10 @@ const Index = () => {
               <Button onClick={() => setReservaOpen(true)} className="shadow-elegant">
                 Reservar Mesa
               </Button>
-              <Link to="/admin">
-                <Button variant="ghost" size="icon">
-                  <LogIn size={18} />
-                </Button>
-              </Link>
             </div>
 
             {/* Mobile Menu */}
             <div className="flex md:hidden items-center gap-2">
-              <Link to="/admin">
-                <Button variant="ghost" size="icon">
-                  <LogIn size={18} />
-                </Button>
-              </Link>
               <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
                 <SheetTrigger asChild>
                   <Button variant="ghost" size="icon">
@@ -357,9 +350,12 @@ const Index = () => {
               © 2024 Sabor Autêntico. Todos os direitos reservados.
             </p>
           </div>
-          <div className="text-center">
-            <Link to="/admin" className="text-sm text-background/60 hover:text-background transition-colors">
-              Admin
+          <div className="text-center mt-4">
+            <Link 
+              to="/admin" 
+              className="text-xs text-background/40 hover:text-background/60 transition-colors opacity-50 hover:opacity-70"
+            >
+              Área Administrativa
             </Link>
           </div>
         </div>

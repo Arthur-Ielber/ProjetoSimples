@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { supabase } from "@/integrations/supabase/client";
+import { localMenu } from "@/lib/localStorage";
 import { Loader2 } from "lucide-react";
 
 interface MenuItem {
@@ -26,17 +26,17 @@ export const MenuModal = ({ open, onOpenChange }: MenuModalProps) => {
     }
   }, [open]);
 
-  const loadMenu = async () => {
+  const loadMenu = () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("ementa")
-      .select("*")
-      .order("secao", { ascending: true })
-      .order("nome", { ascending: true });
-
-    if (!error && data) {
-      setMenuItems(data);
-    }
+    const items = localMenu.getAll();
+    // Ordenar por seção e nome
+    const sorted = items.sort((a, b) => {
+      if (a.secao !== b.secao) {
+        return a.secao.localeCompare(b.secao);
+      }
+      return a.nome.localeCompare(b.nome);
+    });
+    setMenuItems(sorted);
     setLoading(false);
   };
 

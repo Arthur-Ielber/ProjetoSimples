@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { localMenu, MenuItem as LocalMenuItem } from "@/lib/localStorage";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,15 +11,7 @@ import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
-interface MenuItem {
-  id: string;
-  nome: string;
-  descricao: string | null;
-  preco: number;
-  secao: string;
-  destaque: boolean;
-  imagem_url: string | null;
-}
+type MenuItem = LocalMenuItem;
 
 export const EmentaTab = () => {
   const [items, setItems] = useState<MenuItem[]>([]);
@@ -39,17 +31,17 @@ export const EmentaTab = () => {
     loadItems();
   }, []);
 
-  const loadItems = async () => {
+  const loadItems = () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("ementa")
-      .select("*")
-      .order("secao")
-      .order("nome");
-
-    if (!error && data) {
-      setItems(data);
-    }
+    const data = localMenu.getAll();
+    // Ordenar por seção e nome
+    const sorted = data.sort((a, b) => {
+      if (a.secao !== b.secao) {
+        return a.secao.localeCompare(b.secao);
+      }
+      return a.nome.localeCompare(b.nome);
+    });
+    setItems(sorted);
     setLoading(false);
   };
 
@@ -91,23 +83,26 @@ export const EmentaTab = () => {
     };
 
     if (editingItem) {
-      const { error } = await supabase
-        .from("ementa")
-        .update(data)
-        .eq("id", editingItem.id);
+      const result = localMenu.update(editingItem.id, {
+        ...data,
+        secao: data.secao as LocalMenuItem['secao'],
+      });
 
-      if (error) {
-        toast.error("Erro ao atualizar item");
+      if (!result.success) {
+        toast.error(result.error || "Erro ao atualizar item");
       } else {
         toast.success("Item atualizado com sucesso!");
         setDialogOpen(false);
         loadItems();
       }
     } else {
-      const { error } = await supabase.from("ementa").insert([data]);
+      const result = localMenu.create({
+        ...data,
+        secao: data.secao as LocalMenuItem['secao'],
+      });
 
-      if (error) {
-        toast.error("Erro ao adicionar item");
+      if (!result.success) {
+        toast.error(result.error || "Erro ao adicionar item");
       } else {
         toast.success("Item adicionado com sucesso!");
         setDialogOpen(false);
@@ -116,13 +111,13 @@ export const EmentaTab = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = (id: string) => {
     if (!confirm("Tem certeza que deseja remover este item?")) return;
 
-    const { error } = await supabase.from("ementa").delete().eq("id", id);
+    const result = localMenu.delete(id);
 
-    if (error) {
-      toast.error("Erro ao remover item");
+    if (!result.success) {
+      toast.error(result.error || "Erro ao remover item");
     } else {
       toast.success("Item removido com sucesso!");
       loadItems();
