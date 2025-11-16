@@ -3,8 +3,9 @@ import { Button } from "@/components/ui/button";
 import { MenuModal } from "@/components/MenuModal";
 import { ReservaModal } from "@/components/ReservaModal";
 import { supabase } from "@/integrations/supabase/client";
-import { Phone, Mail, Clock, MapPin, Home, UtensilsCrossed, Calendar, LogIn } from "lucide-react";
+import { Phone, Mail, Clock, MapPin, Home, UtensilsCrossed, Calendar, LogIn, Menu, X } from "lucide-react";
 import { Link } from "react-router-dom";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
 interface Config {
   telefone: string;
@@ -25,8 +26,13 @@ interface PratoDestaque {
 const Index = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [reservaOpen, setReservaOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [config, setConfig] = useState<Config | null>(null);
   const [pratosDestaque, setPratosDestaque] = useState<PratoDestaque[]>([]);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   useEffect(() => {
     loadConfig();
@@ -53,15 +59,15 @@ const Index = () => {
       <header className="sticky top-0 z-50 bg-background/95 backdrop-blur-sm border-b border-border shadow-soft">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <Link to="/" className="text-2xl font-serif font-bold text-primary">
+            <button onClick={scrollToTop} className="text-2xl font-serif font-bold text-primary hover:text-primary/90 transition-colors">
               Sabores de Alfama
-            </Link>
+            </button>
             
             <nav className="hidden md:flex items-center gap-6">
-              <Link to="/" className="flex items-center gap-2 text-foreground/80 hover:text-foreground transition-colors text-sm font-medium">
+              <button onClick={scrollToTop} className="flex items-center gap-2 text-foreground/80 hover:text-foreground transition-colors text-sm font-medium">
                 <Home size={18} />
                 <span>Início</span>
-              </Link>
+              </button>
               <button 
                 onClick={() => setMenuOpen(true)}
                 className="flex items-center gap-2 text-foreground/80 hover:text-foreground transition-colors text-sm font-medium"
@@ -78,7 +84,7 @@ const Index = () => {
               </button>
             </nav>
 
-            <div className="flex items-center gap-4">
+            <div className="hidden md:flex items-center gap-4">
               <div className="hidden lg:flex items-center gap-4 text-sm text-muted-foreground">
                 <div className="flex items-center gap-2">
                   <Phone size={16} className="text-primary" />
@@ -98,13 +104,88 @@ const Index = () => {
                 </Button>
               </Link>
             </div>
+
+            {/* Mobile Menu */}
+            <div className="flex md:hidden items-center gap-2">
+              <Link to="/admin">
+                <Button variant="ghost" size="icon">
+                  <LogIn size={18} />
+                </Button>
+              </Link>
+              <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+                <SheetTrigger asChild>
+                  <Button variant="ghost" size="icon">
+                    <Menu size={24} />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="right" className="w-[300px]">
+                  <div className="flex flex-col gap-6 mt-8">
+                    <button 
+                      onClick={() => {
+                        scrollToTop();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="flex items-center gap-3 text-lg font-medium text-foreground hover:text-primary transition-colors"
+                    >
+                      <Home size={20} />
+                      <span>Início</span>
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setMenuOpen(true);
+                        setMobileMenuOpen(false);
+                      }}
+                      className="flex items-center gap-3 text-lg font-medium text-foreground hover:text-primary transition-colors"
+                    >
+                      <UtensilsCrossed size={20} />
+                      <span>Ementa</span>
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setReservaOpen(true);
+                        setMobileMenuOpen(false);
+                      }}
+                      className="flex items-center gap-3 text-lg font-medium text-foreground hover:text-primary transition-colors"
+                    >
+                      <Calendar size={20} />
+                      <span>Reservas</span>
+                    </button>
+                    <div className="border-t pt-6 space-y-4">
+                      <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                        <Phone size={16} className="text-primary" />
+                        <span>{config?.telefone}</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                        <MapPin size={16} className="text-primary" />
+                        <span>Lisboa</span>
+                      </div>
+                    </div>
+                    <Button 
+                      onClick={() => {
+                        setReservaOpen(true);
+                        setMobileMenuOpen(false);
+                      }} 
+                      className="w-full shadow-elegant mt-4"
+                    >
+                      Reservar Mesa
+                    </Button>
+                  </div>
+                </SheetContent>
+              </Sheet>
+            </div>
           </div>
         </div>
       </header>
 
       {/* Hero Section */}
-      <section className="relative gradient-hero text-primary-foreground py-32 px-6 overflow-hidden">
-        <div className="absolute inset-0 bg-black/30"></div>
+      <section className="relative text-primary-foreground py-32 px-6 overflow-hidden min-h-[600px] flex items-center">
+        <div 
+          className="absolute inset-0 bg-cover bg-center"
+          style={{
+            backgroundImage: "url('https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1600&auto=format&fit=crop')",
+          }}
+        ></div>
+        <div className="absolute inset-0 bg-black/50"></div>
         <div className="container mx-auto max-w-6xl relative z-10 text-center">
           <h1 className="text-5xl md:text-7xl font-serif font-bold mb-6 animate-in fade-in slide-in-from-bottom-4 duration-1000">
             Sabores Tradicionais
