@@ -8,6 +8,7 @@ import { LogOut } from "lucide-react";
 import { ReservasTab } from "@/components/dashboard/ReservasTab";
 import { EmentaTab } from "@/components/dashboard/EmentaTab";
 import { ConfigTab } from "@/components/dashboard/ConfigTab";
+import { GestaoTab } from "@/components/dashboard/GestaoTab";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -96,9 +97,10 @@ const Dashboard = () => {
 
       <main className="container mx-auto px-6 py-8">
         <Tabs defaultValue="reservas" className="space-y-6">
-          <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-3' : 'grid-cols-2'} max-w-2xl`}>
+          <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-4' : 'grid-cols-3'} max-w-4xl`}>
             <TabsTrigger value="reservas">Reservas</TabsTrigger>
             <TabsTrigger value="ementa">Ementa</TabsTrigger>
+            <TabsTrigger value="gestao">Gestão do Restaurante</TabsTrigger>
             {isAdmin && (
               <TabsTrigger value="config">Configurações</TabsTrigger>
             )}
@@ -110,6 +112,10 @@ const Dashboard = () => {
 
           <TabsContent value="ementa">
             <EmentaTab />
+          </TabsContent>
+
+          <TabsContent value="gestao">
+            <GestaoTab />
           </TabsContent>
 
           {isAdmin && (

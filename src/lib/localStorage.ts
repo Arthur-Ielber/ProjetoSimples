@@ -537,3 +537,153 @@ export const localReservas = {
   },
 };
 
+// ========== PEDIDOS/COMANDAS ==========
+export interface ItemPedido {
+  menuItemId: string;
+  nome: string;
+  preco: number;
+  quantidade: number;
+}
+
+export interface Pedido {
+  id: string;
+  nomeCliente: string;
+  itens: ItemPedido[];
+  subtotal: number; // Soma dos pratos
+  taxa: number; // 5% sobre o subtotal
+  total: number; // subtotal + taxa
+  data: string; // Data do pedido (YYYY-MM-DD)
+  hora: string; // Hora do pedido (HH:MM)
+  created_at: string;
+  updated_at: string;
+}
+
+const PEDIDOS_STORAGE_KEY = 'table_menu_pedidos';
+
+export const localPedidos = {
+  getAll: (): Pedido[] => {
+    try {
+      const stored = localStorage.getItem(PEDIDOS_STORAGE_KEY);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  },
+
+  getById: (id: string): Pedido | null => {
+    const pedidos = localPedidos.getAll();
+    return pedidos.find(pedido => pedido.id === id) || null;
+  },
+
+  // Obter pedidos do dia atual
+  getDoDia: (): Pedido[] => {
+    const hoje = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const pedidos = localPedidos.getAll();
+    return pedidos.filter(pedido => pedido.data === hoje);
+  },
+
+  // Obter pedidos de uma data específica
+  getPorData: (data: string): Pedido[] => {
+    const pedidos = localPedidos.getAll();
+    return pedidos.filter(pedido => pedido.data === data);
+  },
+
+  create: (pedido: Omit<Pedido, 'id' | 'created_at' | 'updated_at' | 'subtotal' | 'taxa' | 'total'>): { success: boolean; data?: Pedido; error?: string } => {
+    try {
+      const pedidos = localPedidos.getAll();
+      
+      // Calcular subtotal (soma dos pratos)
+      const subtotal = pedido.itens.reduce((sum, item) => sum + (item.preco * item.quantidade), 0);
+      
+      // Calcular taxa (5% sobre o subtotal)
+      const taxa = subtotal * 0.05;
+      
+      // Calcular total
+      const total = subtotal + taxa;
+      
+      // Data e hora atual
+      const agora = new Date();
+      const data = agora.toISOString().split('T')[0];
+      const hora = agora.toTimeString().split(' ')[0].substring(0, 5);
+      
+      const newPedido: Pedido = {
+        ...pedido,
+        subtotal,
+        taxa,
+        total,
+        data,
+        hora,
+        id: crypto.randomUUID(),
+        created_at: agora.toISOString(),
+        updated_at: agora.toISOString(),
+      };
+      
+      pedidos.push(newPedido);
+      localStorage.setItem(PEDIDOS_STORAGE_KEY, JSON.stringify(pedidos));
+      
+      // Disparar evento customizado
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: PEDIDOS_STORAGE_KEY, action: 'create' } 
+      }));
+      
+      return { success: true, data: newPedido };
+    } catch (error) {
+      console.error('Erro ao criar pedido:', error);
+      return { success: false, error: 'Erro ao criar pedido' };
+    }
+  },
+
+  update: (id: string, updates: Partial<Pedido>): { success: boolean; data?: Pedido; error?: string } => {
+    try {
+      const pedidos = localPedidos.getAll();
+      const index = pedidos.findIndex(pedido => pedido.id === id);
+      if (index === -1) {
+        return { success: false, error: 'Pedido não encontrado' };
+      }
+      
+      const updatedPedido = { ...pedidos[index], ...updates };
+      
+      // Recalcular se os itens mudaram
+      if (updates.itens) {
+        updatedPedido.subtotal = updates.itens.reduce((sum, item) => sum + (item.preco * item.quantidade), 0);
+        updatedPedido.taxa = updatedPedido.subtotal * 0.05;
+        updatedPedido.total = updatedPedido.subtotal + updatedPedido.taxa;
+      }
+      
+      updatedPedido.updated_at = new Date().toISOString();
+      
+      pedidos[index] = updatedPedido;
+      localStorage.setItem(PEDIDOS_STORAGE_KEY, JSON.stringify(pedidos));
+      
+      // Disparar evento customizado
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: PEDIDOS_STORAGE_KEY, action: 'update' } 
+      }));
+      
+      return { success: true, data: updatedPedido };
+    } catch (error) {
+      return { success: false, error: 'Erro ao atualizar pedido' };
+    }
+  },
+
+  delete: (id: string): { success: boolean; error?: string } => {
+    try {
+      const pedidos = localPedidos.getAll();
+      const filtered = pedidos.filter(pedido => pedido.id !== id);
+      localStorage.setItem(PEDIDOS_STORAGE_KEY, JSON.stringify(filtered));
+      
+      // Disparar evento customizado
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: PEDIDOS_STORAGE_KEY, action: 'delete' } 
+      }));
+      
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: 'Erro ao deletar pedido' };
+    }
+  },
+};
+
