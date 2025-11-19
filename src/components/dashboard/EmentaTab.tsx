@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { localMenu, MenuItem as LocalMenuItem } from "@/lib/localStorage";
+import { localMenu, localSections, MenuItem as LocalMenuItem, MenuSection } from "@/lib/localStorage";
 import { localAuth } from "@/lib/localAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Loader2, Power, PowerOff, Upload, X, Image as ImageIcon } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2, Power, PowerOff, Upload, X, Image as ImageIcon, FolderPlus } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 
@@ -18,14 +18,18 @@ type MenuItem = LocalMenuItem;
 
 export const EmentaTab = () => {
   const [items, setItems] = useState<MenuItem[]>([]);
+  const [sections, setSections] = useState<MenuSection[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [sectionDialogOpen, setSectionDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
+  const [editingSection, setEditingSection] = useState<MenuSection | null>(null);
+  const [sectionFormData, setSectionFormData] = useState({ nome: "" });
   const [formData, setFormData] = useState({
     nome: "",
     descricao: "",
     preco: "",
-    secao: "Entradas",
+    secao: "",
     destaque: false,
     imagem_url: "",
   });
@@ -34,12 +38,17 @@ export const EmentaTab = () => {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   useEffect(() => {
+    // Carregar seções primeiro, depois os itens
+    loadSections();
     loadItems();
     
     // Listener para atualizar quando houver mudanças no localStorage (outras abas)
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'table_menu_ementa') {
         loadItems();
+      } else if (e.key === 'table_menu_secoes') {
+        loadSections();
+        loadItems(); // Recarregar itens quando seções mudarem para atualizar ordenação
       }
     };
     
@@ -47,6 +56,9 @@ export const EmentaTab = () => {
     const handleCustomStorageChange = (e: CustomEvent) => {
       if (e.detail?.key === 'table_menu_ementa') {
         loadItems();
+      } else if (e.detail?.key === 'table_menu_secoes') {
+        loadSections();
+        loadItems(); // Recarregar itens quando seções mudarem para atualizar ordenação
       }
     };
     
@@ -62,15 +74,30 @@ export const EmentaTab = () => {
   const loadItems = () => {
     setLoading(true);
     const data = localMenu.getAll();
-    // Ordenar por seção e nome (criar cópia para não modificar o original)
+    // Ordenar por ordem da seção e depois por nome (criar cópia para não modificar o original)
+    const sectionsMap = new Map(sections.map(s => [s.nome, s.ordem]));
     const sorted = [...data].sort((a, b) => {
-      if (a.secao !== b.secao) {
-        return a.secao.localeCompare(b.secao);
+      const ordemA = sectionsMap.get(a.secao) ?? 999;
+      const ordemB = sectionsMap.get(b.secao) ?? 999;
+      if (ordemA !== ordemB) {
+        return ordemA - ordemB;
       }
       return a.nome.localeCompare(b.nome);
     });
     setItems(sorted);
     setLoading(false);
+  };
+
+  const loadSections = () => {
+    const data = localSections.getAll();
+    // Ordenar por ordem
+    const sorted = [...data].sort((a, b) => a.ordem - b.ordem);
+    setSections(sorted);
+    
+    // Se não houver seção selecionada no formData, usar a primeira seção disponível
+    if (!formData.secao && sorted.length > 0) {
+      setFormData(prev => ({ ...prev, secao: sorted[0].nome }));
+    }
   };
 
   const handleOpenDialog = (item?: MenuItem) => {
@@ -91,11 +118,12 @@ export const EmentaTab = () => {
       setPreviewImage(item.imagem_url);
     } else {
       setEditingItem(null);
+      const firstSection = sections.length > 0 ? sections[0].nome : "";
       setFormData({
         nome: "",
         descricao: "",
         preco: "",
-        secao: "Entradas",
+        secao: firstSection,
         destaque: false,
         imagem_url: "",
       });
@@ -166,7 +194,7 @@ export const EmentaTab = () => {
       nome: formData.nome.trim(),
       descricao: formData.descricao.trim() || null,
       preco: preco,
-      secao: formData.secao as LocalMenuItem['secao'],
+      secao: formData.secao,
       destaque: formData.destaque,
       imagem_url: finalImageUrl,
     };
@@ -232,14 +260,70 @@ export const EmentaTab = () => {
     }
   };
 
-  const sections = ["Entradas", "Pratos Principais", "Sobremesas", "Bebidas"];
+  const handleOpenSectionDialog = (section?: MenuSection) => {
+    if (section) {
+      setEditingSection(section);
+      setSectionFormData({ nome: section.nome });
+    } else {
+      setEditingSection(null);
+      setSectionFormData({ nome: "" });
+    }
+    setSectionDialogOpen(true);
+  };
+
+  const handleSectionSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!sectionFormData.nome.trim()) {
+      toast.error("Nome da seção é obrigatório.");
+      return;
+    }
+
+    if (editingSection) {
+      const result = localSections.update(editingSection.id, { nome: sectionFormData.nome });
+      if (!result.success) {
+        toast.error(result.error || "Erro ao atualizar seção");
+      } else {
+        toast.success("Seção atualizada com sucesso!");
+        setSectionDialogOpen(false);
+        loadSections();
+      }
+    } else {
+      const result = localSections.create(sectionFormData.nome);
+      if (!result.success) {
+        toast.error(result.error || "Erro ao criar seção");
+      } else {
+        toast.success("Seção criada com sucesso!");
+        setSectionDialogOpen(false);
+        loadSections();
+      }
+    }
+  };
+
+  const handleDeleteSection = (id: string) => {
+    if (!confirm("Tem certeza que deseja remover esta seção?")) return;
+
+    const result = localSections.delete(id);
+    if (!result.success) {
+      toast.error(result.error || "Erro ao remover seção");
+    } else {
+      toast.success("Seção removida com sucesso!");
+      loadSections();
+    }
+  };
 
   return (
     <div className="space-y-6">
-      <Button onClick={() => handleOpenDialog()}>
-        <Plus className="mr-2 h-4 w-4" />
-        Adicionar Item
-      </Button>
+      <div className="flex gap-2">
+        <Button onClick={() => handleOpenDialog()}>
+          <Plus className="mr-2 h-4 w-4" />
+          Adicionar Item
+        </Button>
+        <Button onClick={() => handleOpenSectionDialog()} variant="outline">
+          <FolderPlus className="mr-2 h-4 w-4" />
+          Gerenciar Seções
+        </Button>
+      </div>
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
@@ -248,13 +332,13 @@ export const EmentaTab = () => {
       ) : (
         <div className="space-y-8">
           {sections.map((section) => {
-            const sectionItems = items.filter((item) => item.secao === section);
+            const sectionItems = items.filter((item) => item.secao === section.nome);
             if (sectionItems.length === 0) return null;
 
             return (
-              <div key={section}>
+              <div key={section.id}>
                 <h3 className="text-2xl font-serif font-semibold mb-4 text-primary">
-                  {section}
+                  {section.nome}
                 </h3>
                 <div className="grid gap-4">
                   {sectionItems.map((item) => (
@@ -384,12 +468,12 @@ export const EmentaTab = () => {
                 onValueChange={(value) => setFormData({ ...formData, secao: value })}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Selecione uma seção" />
                 </SelectTrigger>
                 <SelectContent>
                   {sections.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
+                    <SelectItem key={s.id} value={s.nome}>
+                      {s.nome}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -501,6 +585,93 @@ export const EmentaTab = () => {
               {editingItem ? "Atualizar" : "Adicionar"}
             </Button>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog para gerenciar seções */}
+      <Dialog open={sectionDialogOpen} onOpenChange={setSectionDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {editingSection ? "Editar Seção" : "Nova Seção"}
+            </DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleSectionSubmit} className="space-y-4">
+            <div>
+              <Label htmlFor="sectionNome">Nome da Seção</Label>
+              <Input
+                id="sectionNome"
+                value={sectionFormData.nome}
+                onChange={(e) => setSectionFormData({ nome: e.target.value })}
+                placeholder="Ex: Aperitivos"
+                required
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSectionDialogOpen(false)}
+                className="flex-1"
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" className="flex-1">
+                {editingSection ? "Atualizar" : "Criar"}
+              </Button>
+            </div>
+          </form>
+
+          {/* Lista de seções existentes */}
+          {!editingSection && sections.length > 0 && (
+            <div className="mt-6 pt-6 border-t">
+              <Label className="mb-3 block">Seções Existentes</Label>
+              <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                {sections.map((section) => {
+                  const itemsCount = items.filter(item => item.secao === section.nome).length;
+                  return (
+                    <Card key={section.id} className="p-3">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <p className="font-medium">{section.nome}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {itemsCount} {itemsCount === 1 ? 'item' : 'itens'}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSectionDialogOpen(false);
+                              setTimeout(() => handleOpenSectionDialog(section), 100);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          {localAuth.isMainAdmin() && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => handleDeleteSection(section.id)}
+                              disabled={itemsCount > 0}
+                              title={itemsCount > 0 ? "Não é possível excluir seção com itens" : "Excluir seção"}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

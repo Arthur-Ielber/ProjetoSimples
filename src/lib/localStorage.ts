@@ -62,7 +62,7 @@ export interface MenuItem {
   nome: string;
   descricao: string | null;
   preco: number;
-  secao: 'Entradas' | 'Pratos Principais' | 'Sobremesas' | 'Bebidas';
+  secao: string; // Agora aceita qualquer string
   destaque: boolean;
   ativo: boolean;
   imagem_url: string | null;
@@ -70,7 +70,23 @@ export interface MenuItem {
   updated_at: string;
 }
 
+export interface MenuSection {
+  id: string;
+  nome: string;
+  ordem: number;
+  created_at: string;
+  updated_at: string;
+}
+
 const MENU_STORAGE_KEY = 'table_menu_ementa';
+const SECTIONS_STORAGE_KEY = 'table_menu_secoes';
+
+const defaultSections: MenuSection[] = [
+  { id: '1', nome: 'Entradas', ordem: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: '2', nome: 'Pratos Principais', ordem: 2, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: '3', nome: 'Sobremesas', ordem: 3, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: '4', nome: 'Bebidas', ordem: 4, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+];
 
 const defaultMenuItems: MenuItem[] = [
   {
@@ -352,9 +368,197 @@ export const localMenu = {
       const items = localMenu.getAll();
       const filtered = items.filter(item => item.id !== id);
       localStorage.setItem(MENU_STORAGE_KEY, JSON.stringify(filtered));
+      
+      // Disparar evento customizado para atualizar outras partes da aplicação
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: MENU_STORAGE_KEY, action: 'delete' } 
+      }));
+      
       return { success: true };
     } catch (error) {
       return { success: false, error: 'Erro ao deletar item' };
+    }
+  },
+};
+
+// ========== SEÇÕES DA EMENTA ==========
+export const localSections = {
+  getAll: (): MenuSection[] => {
+    try {
+      const stored = localStorage.getItem(SECTIONS_STORAGE_KEY);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+      // Inicializar com seções padrão
+      localStorage.setItem(SECTIONS_STORAGE_KEY, JSON.stringify(defaultSections));
+      return defaultSections;
+    } catch {
+      return defaultSections;
+    }
+  },
+
+  getById: (id: string): MenuSection | null => {
+    const sections = localSections.getAll();
+    return sections.find(section => section.id === id) || null;
+  },
+
+  getByNome: (nome: string): MenuSection | null => {
+    const sections = localSections.getAll();
+    return sections.find(section => section.nome === nome) || null;
+  },
+
+  create: (nome: string): { success: boolean; data?: MenuSection; error?: string } => {
+    try {
+      const sections = localSections.getAll();
+      
+      // Verificar se já existe uma seção com o mesmo nome
+      if (sections.some(s => s.nome.toLowerCase() === nome.toLowerCase().trim())) {
+        return { success: false, error: 'Já existe uma seção com este nome' };
+      }
+
+      const maxOrdem = sections.length > 0 ? Math.max(...sections.map(s => s.ordem)) : 0;
+      const newSection: MenuSection = {
+        id: crypto.randomUUID(),
+        nome: nome.trim(),
+        ordem: maxOrdem + 1,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      
+      sections.push(newSection);
+      localStorage.setItem(SECTIONS_STORAGE_KEY, JSON.stringify(sections));
+      
+      // Disparar evento customizado
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: SECTIONS_STORAGE_KEY, action: 'create' } 
+      }));
+      
+      return { success: true, data: newSection };
+    } catch (error) {
+      console.error('Erro ao criar seção:', error);
+      return { success: false, error: 'Erro ao criar seção' };
+    }
+  },
+
+  update: (id: string, updates: Partial<MenuSection>): { success: boolean; data?: MenuSection; error?: string } => {
+    try {
+      const sections = localSections.getAll();
+      const index = sections.findIndex(s => s.id === id);
+      
+      if (index === -1) {
+        return { success: false, error: 'Seção não encontrada' };
+      }
+
+      // Se estiver atualizando o nome, verificar se não existe outra seção com o mesmo nome
+      if (updates.nome) {
+        const nomeTrimmed = updates.nome.trim();
+        if (sections.some(s => s.id !== id && s.nome.toLowerCase() === nomeTrimmed.toLowerCase())) {
+          return { success: false, error: 'Já existe uma seção com este nome' };
+        }
+      }
+
+      const updatedSection: MenuSection = {
+        ...sections[index],
+        ...updates,
+        nome: updates.nome ? updates.nome.trim() : sections[index].nome,
+        updated_at: new Date().toISOString(),
+      };
+      
+      sections[index] = updatedSection;
+      localStorage.setItem(SECTIONS_STORAGE_KEY, JSON.stringify(sections));
+      
+      // Se o nome foi alterado, atualizar todos os itens que usam essa seção
+      if (updates.nome && updates.nome !== sections[index].nome) {
+        const items = localMenu.getAll();
+        const updatedItems = items.map(item => {
+          if (item.secao === sections[index].nome) {
+            return { ...item, secao: updatedSection.nome, updated_at: new Date().toISOString() };
+          }
+          return item;
+        });
+        localStorage.setItem(MENU_STORAGE_KEY, JSON.stringify(updatedItems));
+        
+        // Disparar evento para atualizar itens também
+        window.dispatchEvent(new CustomEvent('localStorageChange', { 
+          detail: { key: MENU_STORAGE_KEY, action: 'update' } 
+        }));
+      }
+      
+      // Disparar evento customizado
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: SECTIONS_STORAGE_KEY, action: 'update' } 
+      }));
+      
+      return { success: true, data: updatedSection };
+    } catch (error) {
+      console.error('Erro ao atualizar seção:', error);
+      return { success: false, error: 'Erro ao atualizar seção' };
+    }
+  },
+
+  delete: (id: string): { success: boolean; error?: string } => {
+    try {
+      const sections = localSections.getAll();
+      const section = sections.find(s => s.id === id);
+      
+      if (!section) {
+        return { success: false, error: 'Seção não encontrada' };
+      }
+
+      // Verificar se há itens usando esta seção
+      const items = localMenu.getAll();
+      const itemsNaSecao = items.filter(item => item.secao === section.nome);
+      
+      if (itemsNaSecao.length > 0) {
+        return { 
+          success: false, 
+          error: `Não é possível excluir a seção. Existem ${itemsNaSecao.length} item(ns) associado(s) a ela.` 
+        };
+      }
+
+      const filtered = sections.filter(s => s.id !== id);
+      localStorage.setItem(SECTIONS_STORAGE_KEY, JSON.stringify(filtered));
+      
+      // Disparar evento customizado
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: SECTIONS_STORAGE_KEY, action: 'delete' } 
+      }));
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Erro ao deletar seção:', error);
+      return { success: false, error: 'Erro ao deletar seção' };
+    }
+  },
+
+  reorder: (sectionIds: string[]): { success: boolean; error?: string } => {
+    try {
+      const sections = localSections.getAll();
+      const reordered = sectionIds.map((id, index) => {
+        const section = sections.find(s => s.id === id);
+        if (!section) return null;
+        return { ...section, ordem: index + 1, updated_at: new Date().toISOString() };
+      }).filter((s): s is MenuSection => s !== null);
+      
+      // Adicionar seções que não foram incluídas no final
+      const remaining = sections.filter(s => !sectionIds.includes(s.id));
+      reordered.push(...remaining.map((s, index) => ({
+        ...s,
+        ordem: reordered.length + index + 1,
+        updated_at: new Date().toISOString(),
+      })));
+      
+      localStorage.setItem(SECTIONS_STORAGE_KEY, JSON.stringify(reordered));
+      
+      // Disparar evento customizado
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: SECTIONS_STORAGE_KEY, action: 'reorder' } 
+      }));
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Erro ao reordenar seções:', error);
+      return { success: false, error: 'Erro ao reordenar seções' };
     }
   },
 };
@@ -377,8 +581,12 @@ export interface Reserva {
   data_reserva: string;
   hora_reserva: string;
   numero_pessoas: number;
+  mesaId?: string | null;
   estado: 'pendente' | 'confirmado' | 'cancelado' | 'finalizado';
   observacoes: Observacao[];
+  observacoesRestaurante?: string; // Observações do restaurante sobre a reserva
+  tokenConfirmacao?: string; // Token para confirmação pelo cliente
+  confirmadoPeloCliente?: boolean; // Flag para saber se o cliente confirmou via token
   created_at: string;
   updated_at: string;
 }
@@ -535,6 +743,73 @@ export const localReservas = {
       return { success: false, error: 'Erro ao deletar reserva' };
     }
   },
+
+  getReservaConfirmadaParaMesa: (mesaId: string, data: string, hora: string): Reserva | null => {
+    try {
+      const reservas = localReservas.getAll();
+      const reserva = reservas.find(r => 
+        r.mesaId === mesaId &&
+        r.estado === 'confirmado' &&
+        r.data_reserva === data &&
+        r.hora_reserva === hora
+      );
+      return reserva || null;
+    } catch (error) {
+      console.error('Erro ao buscar reserva confirmada:', error);
+      return null;
+    }
+  },
+
+  getReservasConfirmadasParaMesa: (mesaId: string, data: string): Reserva[] => {
+    try {
+      const reservas = localReservas.getAll();
+      return reservas.filter(r => 
+        r.mesaId === mesaId &&
+        r.estado === 'confirmado' &&
+        r.data_reserva === data
+      );
+    } catch (error) {
+      console.error('Erro ao buscar reservas confirmadas:', error);
+      return [];
+    }
+  },
+
+  getMesasDisponiveisParaReserva: (data: string, hora: string): Mesa[] => {
+    try {
+      const todasMesas = localMesas.getAll().filter(m => m.ativa);
+      const mesasDisponiveis: Mesa[] = [];
+
+      for (const mesa of todasMesas) {
+        // Verificar se a mesa tem comandas ativas
+        const pedidosAtivos = localMesas.getPedidosAtivos(mesa.id);
+        if (pedidosAtivos.length > 0) {
+          continue; // Mesa ocupada
+        }
+
+        // Verificar se há reserva confirmada para esta mesa no mesmo horário
+        const reservasConfirmadas = localReservas.getReservasConfirmadasParaMesa(mesa.id, data);
+        const temReservaNoHorario = reservasConfirmadas.some(r => {
+          const [horaReserva, minutoReserva] = r.hora_reserva.split(':').map(Number);
+          const [horaAtual, minutoAtual] = hora.split(':').map(Number);
+          
+          const horaReservaMinutos = horaReserva * 60 + minutoReserva;
+          const horaAtualMinutos = horaAtual * 60 + minutoAtual;
+          
+          // Considerar conflito se estiver dentro de 2 horas de diferença
+          return Math.abs(horaReservaMinutos - horaAtualMinutos) < 120;
+        });
+
+        if (!temReservaNoHorario) {
+          mesasDisponiveis.push(mesa);
+        }
+      }
+
+      return mesasDisponiveis;
+    } catch (error) {
+      console.error('Erro ao buscar mesas disponíveis:', error);
+      return [];
+    }
+  },
 };
 
 // ========== PEDIDOS/COMANDAS ==========
@@ -543,15 +818,23 @@ export interface ItemPedido {
   nome: string;
   preco: number;
   quantidade: number;
+  observacoes?: string | null; // Observações específicas do item
 }
+
+export type StatusPedido = 'aberta' | 'pendente' | 'finalizada';
 
 export interface Pedido {
   id: string;
   nomeCliente: string;
+  mesaId?: string | null; // ID da mesa (opcional para compatibilidade)
   itens: ItemPedido[];
   subtotal: number; // Soma dos pratos
-  taxa: number; // 5% sobre o subtotal
+  taxa: number; // Taxa (atualmente 0)
   total: number; // subtotal + taxa
+  formaPagamento?: string | null; // Forma de pagamento (Dinheiro, Cartão, etc.)
+  observacoes?: string | null; // Observações gerais da comanda
+  observacoesFinalizacao?: string | null; // Observações ao finalizar
+  status: StatusPedido; // Status da comanda: aberta, pendente, finalizada
   data: string; // Data do pedido (YYYY-MM-DD)
   hora: string; // Hora do pedido (HH:MM)
   created_at: string;
@@ -564,11 +847,39 @@ export const localPedidos = {
   getAll: (): Pedido[] => {
     try {
       const stored = localStorage.getItem(PEDIDOS_STORAGE_KEY);
-      if (stored) {
-        return JSON.parse(stored);
+      if (!stored) return [];
+      const pedidos = JSON.parse(stored);
+      
+      // Migração: converter comandas antigas que usam finalizado para status
+      let needsMigration = false;
+      const migratedPedidos = pedidos.map((pedido: any) => {
+        if (!pedido.status && typeof pedido.finalizado === 'boolean') {
+          needsMigration = true;
+          return {
+            ...pedido,
+            status: pedido.finalizado ? 'finalizada' : 'aberta',
+            observacoesFinalizacao: pedido.observacoesFinalizacao || null,
+          };
+        }
+        // Garantir que status existe
+        if (!pedido.status) {
+          needsMigration = true;
+          return {
+            ...pedido,
+            status: 'aberta',
+            observacoesFinalizacao: pedido.observacoesFinalizacao || null,
+          };
+        }
+        return pedido;
+      });
+      
+      if (needsMigration) {
+        localStorage.setItem(PEDIDOS_STORAGE_KEY, JSON.stringify(migratedPedidos));
       }
-      return [];
-    } catch {
+      
+      return migratedPedidos;
+    } catch (error) {
+      console.error('Erro ao carregar pedidos:', error);
       return [];
     }
   },
@@ -591,18 +902,18 @@ export const localPedidos = {
     return pedidos.filter(pedido => pedido.data === data);
   },
 
-  create: (pedido: Omit<Pedido, 'id' | 'created_at' | 'updated_at' | 'subtotal' | 'taxa' | 'total'>): { success: boolean; data?: Pedido; error?: string } => {
+  create: (pedido: Omit<Pedido, 'id' | 'created_at' | 'updated_at' | 'subtotal' | 'taxa' | 'total' | 'status'>): { success: boolean; data?: Pedido; error?: string } => {
     try {
       const pedidos = localPedidos.getAll();
       
       // Calcular subtotal (soma dos pratos)
       const subtotal = pedido.itens.reduce((sum, item) => sum + (item.preco * item.quantidade), 0);
       
-      // Calcular taxa (5% sobre o subtotal)
-      const taxa = subtotal * 0.05;
+      // Taxa removida
+      const taxa = 0;
       
-      // Calcular total
-      const total = subtotal + taxa;
+      // Calcular total (sem taxa)
+      const total = subtotal;
       
       // Data e hora atual
       const agora = new Date();
@@ -614,6 +925,10 @@ export const localPedidos = {
         subtotal,
         taxa,
         total,
+        formaPagamento: null, // Só será preenchido na finalização
+        observacoes: pedido.observacoes || null,
+        observacoesFinalizacao: null,
+        status: 'aberta',
         data,
         hora,
         id: crypto.randomUUID(),
@@ -649,8 +964,8 @@ export const localPedidos = {
       // Recalcular se os itens mudaram
       if (updates.itens) {
         updatedPedido.subtotal = updates.itens.reduce((sum, item) => sum + (item.preco * item.quantidade), 0);
-        updatedPedido.taxa = updatedPedido.subtotal * 0.05;
-        updatedPedido.total = updatedPedido.subtotal + updatedPedido.taxa;
+        updatedPedido.taxa = 0;
+        updatedPedido.total = updatedPedido.subtotal;
       }
       
       updatedPedido.updated_at = new Date().toISOString();
@@ -672,6 +987,17 @@ export const localPedidos = {
   delete: (id: string): { success: boolean; error?: string } => {
     try {
       const pedidos = localPedidos.getAll();
+      const pedido = pedidos.find(p => p.id === id);
+      
+      if (!pedido) {
+        return { success: false, error: 'Pedido não encontrado' };
+      }
+      
+      // Não permitir deletar comandas finalizadas
+      if (pedido.status === 'finalizada') {
+        return { success: false, error: 'Não é possível excluir uma comanda finalizada' };
+      }
+      
       const filtered = pedidos.filter(pedido => pedido.id !== id);
       localStorage.setItem(PEDIDOS_STORAGE_KEY, JSON.stringify(filtered));
       
@@ -684,6 +1010,275 @@ export const localPedidos = {
     } catch (error) {
       return { success: false, error: 'Erro ao deletar pedido' };
     }
+  },
+
+  marcarPendente: (id: string, formaPagamento: string | null, observacoesFinalizacao: string | null): { success: boolean; data?: Pedido; error?: string } => {
+    try {
+      const pedidos = localPedidos.getAll();
+      const index = pedidos.findIndex(pedido => pedido.id === id);
+      if (index === -1) {
+        return { success: false, error: 'Pedido não encontrado' };
+      }
+      
+      pedidos[index].status = 'pendente';
+      pedidos[index].formaPagamento = formaPagamento;
+      pedidos[index].observacoesFinalizacao = observacoesFinalizacao;
+      pedidos[index].updated_at = new Date().toISOString();
+      
+      localStorage.setItem(PEDIDOS_STORAGE_KEY, JSON.stringify(pedidos));
+      
+      // Disparar evento customizado
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: PEDIDOS_STORAGE_KEY, action: 'update' } 
+      }));
+      
+      return { success: true, data: pedidos[index] };
+    } catch (error) {
+      console.error('Erro ao marcar pedido como pendente:', error);
+      return { success: false, error: 'Erro ao marcar pedido como pendente' };
+    }
+  },
+
+  finalizar: (id: string): { success: boolean; data?: Pedido; error?: string } => {
+    try {
+      const pedidos = localPedidos.getAll();
+      const index = pedidos.findIndex(pedido => pedido.id === id);
+      if (index === -1) {
+        return { success: false, error: 'Pedido não encontrado' };
+      }
+      
+      pedidos[index].status = 'finalizada';
+      pedidos[index].updated_at = new Date().toISOString();
+      
+      localStorage.setItem(PEDIDOS_STORAGE_KEY, JSON.stringify(pedidos));
+      
+      // Disparar evento customizado
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: PEDIDOS_STORAGE_KEY, action: 'update' } 
+      }));
+      
+      return { success: true, data: pedidos[index] };
+    } catch (error) {
+      console.error('Erro ao finalizar pedido:', error);
+      return { success: false, error: 'Erro ao finalizar pedido' };
+    }
+  },
+
+  reabrir: (id: string): { success: boolean; data?: Pedido; error?: string } => {
+    try {
+      const pedidos = localPedidos.getAll();
+      const index = pedidos.findIndex(pedido => pedido.id === id);
+      if (index === -1) {
+        return { success: false, error: 'Pedido não encontrado' };
+      }
+      
+      // Só permite reabrir comandas pendentes
+      if (pedidos[index].status !== 'pendente') {
+        return { success: false, error: 'Apenas comandas pendentes podem ser reabertas' };
+      }
+      
+      pedidos[index].status = 'aberta';
+      pedidos[index].updated_at = new Date().toISOString();
+      
+      localStorage.setItem(PEDIDOS_STORAGE_KEY, JSON.stringify(pedidos));
+      
+      // Disparar evento customizado
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: PEDIDOS_STORAGE_KEY, action: 'update' } 
+      }));
+      
+      return { success: true, data: pedidos[index] };
+    } catch (error) {
+      console.error('Erro ao reabrir pedido:', error);
+      return { success: false, error: 'Erro ao reabrir pedido' };
+    }
+  },
+};
+
+// ========== MESAS ==========
+export interface Mesa {
+  id: string;
+  numero: string; // Número ou nome da mesa (ex: "1", "A1", "Varanda 1")
+  capacidade: number; // Capacidade de pessoas
+  ativa: boolean; // Se a mesa está ativa/disponível
+  created_at: string;
+  updated_at: string;
+}
+
+const MESAS_STORAGE_KEY = 'table_menu_mesas';
+
+const defaultMesas: Mesa[] = [
+  { id: '1', numero: '1', capacidade: 4, ativa: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: '2', numero: '2', capacidade: 4, ativa: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: '3', numero: '3', capacidade: 2, ativa: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: '4', numero: '4', capacidade: 6, ativa: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: '5', numero: '5', capacidade: 4, ativa: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: '6', numero: '6', capacidade: 8, ativa: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+];
+
+export const localMesas = {
+  getAll: (): Mesa[] => {
+    try {
+      const stored = localStorage.getItem(MESAS_STORAGE_KEY);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+      // Inicializar com mesas padrão
+      localStorage.setItem(MESAS_STORAGE_KEY, JSON.stringify(defaultMesas));
+      return defaultMesas;
+    } catch {
+      return defaultMesas;
+    }
+  },
+
+  getById: (id: string): Mesa | null => {
+    const mesas = localMesas.getAll();
+    return mesas.find(mesa => mesa.id === id) || null;
+  },
+
+  getAtivas: (): Mesa[] => {
+    const mesas = localMesas.getAll();
+    return mesas.filter(mesa => mesa.ativa);
+  },
+
+  create: (mesa: Omit<Mesa, 'id' | 'created_at' | 'updated_at'>): { success: boolean; data?: Mesa; error?: string } => {
+    try {
+      const mesas = localMesas.getAll();
+      
+      // Verificar se já existe uma mesa com o mesmo número
+      if (mesas.some(m => m.numero.toLowerCase() === mesa.numero.toLowerCase().trim())) {
+        return { success: false, error: 'Já existe uma mesa com este número' };
+      }
+
+      const newMesa: Mesa = {
+        ...mesa,
+        numero: mesa.numero.trim(),
+        id: crypto.randomUUID(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      
+      mesas.push(newMesa);
+      localStorage.setItem(MESAS_STORAGE_KEY, JSON.stringify(mesas));
+      
+      // Disparar evento customizado
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: MESAS_STORAGE_KEY, action: 'create' } 
+      }));
+      
+      return { success: true, data: newMesa };
+    } catch (error) {
+      console.error('Erro ao criar mesa:', error);
+      return { success: false, error: 'Erro ao criar mesa' };
+    }
+  },
+
+  update: (id: string, updates: Partial<Mesa>): { success: boolean; data?: Mesa; error?: string } => {
+    try {
+      const mesas = localMesas.getAll();
+      const index = mesas.findIndex(m => m.id === id);
+      
+      if (index === -1) {
+        return { success: false, error: 'Mesa não encontrada' };
+      }
+
+      // Se estiver atualizando o número, verificar se não existe outra mesa com o mesmo número
+      if (updates.numero) {
+        const numeroTrimmed = updates.numero.trim();
+        if (mesas.some(m => m.id !== id && m.numero.toLowerCase() === numeroTrimmed.toLowerCase())) {
+          return { success: false, error: 'Já existe uma mesa com este número' };
+        }
+      }
+
+      const updatedMesa: Mesa = {
+        ...mesas[index],
+        ...updates,
+        numero: updates.numero ? updates.numero.trim() : mesas[index].numero,
+        updated_at: new Date().toISOString(),
+      };
+      
+      mesas[index] = updatedMesa;
+      localStorage.setItem(MESAS_STORAGE_KEY, JSON.stringify(mesas));
+      
+      // Disparar evento customizado
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: MESAS_STORAGE_KEY, action: 'update' } 
+      }));
+      
+      return { success: true, data: updatedMesa };
+    } catch (error) {
+      console.error('Erro ao atualizar mesa:', error);
+      return { success: false, error: 'Erro ao atualizar mesa' };
+    }
+  },
+
+  delete: (id: string): { success: boolean; error?: string } => {
+    try {
+      const mesas = localMesas.getAll();
+      const mesa = mesas.find(m => m.id === id);
+      
+      if (!mesa) {
+        return { success: false, error: 'Mesa não encontrada' };
+      }
+
+      // Verificar se há pedidos ativos associados a esta mesa hoje
+      const pedidos = localPedidos.getDoDia();
+      const pedidosNaMesa = pedidos.filter(p => p.mesaId === id);
+      
+      if (pedidosNaMesa.length > 0) {
+        return { 
+          success: false, 
+          error: `Não é possível excluir a mesa. Existem ${pedidosNaMesa.length} pedido(s) associado(s) a ela hoje.` 
+        };
+      }
+
+      const filtered = mesas.filter(m => m.id !== id);
+      localStorage.setItem(MESAS_STORAGE_KEY, JSON.stringify(filtered));
+      
+      // Disparar evento customizado
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: MESAS_STORAGE_KEY, action: 'delete' } 
+      }));
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Erro ao deletar mesa:', error);
+      return { success: false, error: 'Erro ao deletar mesa' };
+    }
+  },
+
+  toggleAtiva: (id: string): { success: boolean; data?: Mesa; error?: string } => {
+    try {
+      const mesas = localMesas.getAll();
+      const index = mesas.findIndex(m => m.id === id);
+      if (index === -1) {
+        return { success: false, error: 'Mesa não encontrada' };
+      }
+      
+      const updatedMesa: Mesa = {
+        ...mesas[index],
+        ativa: !mesas[index].ativa,
+        updated_at: new Date().toISOString(),
+      };
+      
+      mesas[index] = updatedMesa;
+      localStorage.setItem(MESAS_STORAGE_KEY, JSON.stringify(mesas));
+      
+      // Disparar evento customizado
+      window.dispatchEvent(new CustomEvent('localStorageChange', { 
+        detail: { key: MESAS_STORAGE_KEY, action: 'update' } 
+      }));
+      
+      return { success: true, data: updatedMesa };
+    } catch (error) {
+      console.error('Erro ao ativar/desativar mesa:', error);
+      return { success: false, error: 'Erro ao ativar/desativar mesa' };
+    }
+  },
+
+  getPedidosAtivos: (mesaId: string): Pedido[] => {
+    const pedidos = localPedidos.getDoDia();
+    return pedidos.filter(p => p.mesaId === mesaId && (p.status === 'aberta' || p.status === 'pendente'));
   },
 };
 

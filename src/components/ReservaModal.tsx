@@ -22,6 +22,7 @@ const reservaSchema = z.object({
   data_reserva: z.string().min(1, "Data é obrigatória"),
   hora_reserva: z.string().min(1, "Hora é obrigatória"),
   numero_pessoas: z.number().min(1, "Mínimo 1 pessoa").max(20, "Máximo 20 pessoas"),
+  mesaId: z.string().nullable().optional(),
 });
 
 export const ReservaModal = ({ open, onOpenChange }: ReservaModalProps) => {
@@ -53,6 +54,7 @@ export const ReservaModal = ({ open, onOpenChange }: ReservaModalProps) => {
           data_reserva: validated.data_reserva,
           hora_reserva: validated.hora_reserva,
           numero_pessoas: validated.numero_pessoas,
+          mesaId: null, // Cliente não pode selecionar mesa - apenas o restaurante
         },
         formData.observacoes.trim() || undefined
       );

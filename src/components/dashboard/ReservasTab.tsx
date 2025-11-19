@@ -1,12 +1,12 @@
-import { useEffect, useState, useRef } from "react";
-import { localReservas, Reserva as LocalReserva, Observacao } from "@/lib/localStorage";
-import { localAuth } from "@/lib/localAuth";
-import { emailService, EmailReply } from "@/lib/emailService";
+import { useEffect, useState } from "react";
+import { localReservas, Reserva as LocalReserva, localMesas, Mesa, localPedidos } from "@/lib/localStorage";
+import { emailService } from "@/lib/emailService";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, MessageSquare, Send } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 type Reserva = LocalReserva;
 
@@ -24,71 +24,33 @@ type FiltroReserva = 'todas' | EstadoReserva;
 
 export const ReservasTab = () => {
   const [reservas, setReservas] = useState<Reserva[]>([]);
+  const [mesas, setMesas] = useState<Mesa[]>([]);
   const [filtro, setFiltro] = useState<FiltroReserva>("pendente");
   const [loading, setLoading] = useState(true);
-  const [observacoesAbertas, setObservacoesAbertas] = useState<Set<string>>(new Set());
-  const [novaObservacao, setNovaObservacao] = useState<Record<string, string>>({});
-  const processedEmailsRef = useRef<Set<number>>(new Set()); // IDs de emails já processados
-
-  // Função para verificar emails recebidos e adicionar como observações
-  const checkForEmailReplies = async () => {
-    try {
-      const result = await emailService.checkEmailReplies();
-      
-      if (!result.success || !result.replies || result.replies.length === 0) {
-        return;
-      }
-
-      // Obter todas as reservas para associar emails
-      const todasReservas = localReservas.getAll();
-
-      for (const reply of result.replies) {
-        // Pular se já processamos este email
-        if (processedEmailsRef.current.has(reply.messageId)) {
-          continue;
-        }
-
-        // Extrair email do remetente (formato: "Nome <email@exemplo.com>" ou "email@exemplo.com")
-        const emailMatch = reply.from.match(/<(.+)>/) || reply.from.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
-        const clienteEmail = emailMatch ? emailMatch[1] || emailMatch[0] : null;
-
-        if (!clienteEmail) continue;
-
-        // Encontrar reserva pelo email do cliente
-        const reserva = todasReservas.find(r => 
-          r.email.toLowerCase() === clienteEmail.toLowerCase()
-        );
-
-        if (reserva && reply.message && reply.message.trim().length > 10) {
-          // Adicionar resposta como observação do cliente
-          const nomeCliente = reserva.nome || clienteEmail.split('@')[0];
-          
-          const resultAdd = localReservas.addObservacao(
-            reserva.id,
-            reply.message.trim(),
-            'cliente',
-            nomeCliente
-          );
-
-          if (resultAdd.success) {
-            processedEmailsRef.current.add(reply.messageId);
-            loadReservas(); // Recarregar para mostrar a nova observação
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Erro ao verificar emails recebidos:', error);
-    }
-  };
+  const [mesaDialogOpen, setMesaDialogOpen] = useState(false);
+  const [reservaParaConfirmar, setReservaParaConfirmar] = useState<Reserva | null>(null);
+  const [mesaSelecionada, setMesaSelecionada] = useState<string | null>(null);
+  const [mesasDisponiveis, setMesasDisponiveis] = useState<Mesa[]>([]);
+  const [observacoesRestaurante, setObservacoesRestaurante] = useState<string>("");
+  const [editarObservacoesDialogOpen, setEditarObservacoesDialogOpen] = useState(false);
+  const [reservaParaEditar, setReservaParaEditar] = useState<Reserva | null>(null);
+  const [observacoesEditadas, setObservacoesEditadas] = useState<string>("");
 
   useEffect(() => {
     loadReservas();
+    loadMesas();
     
     // Listener para mudanças no localStorage
     const handleStorageChange = (e: Event) => {
       const customEvent = e as CustomEvent;
       if (customEvent.detail?.key === 'table_menu_reservas') {
         loadReservas();
+      }
+      if (customEvent.detail?.key === 'table_menu_mesas') {
+        loadMesas();
+      }
+      if (customEvent.detail?.key === 'table_menu_pedidos') {
+        verificarEAbrirComandas();
       }
     };
     
@@ -97,15 +59,15 @@ export const ReservasTab = () => {
     // Atualizar a cada 2 segundos para simular tempo real (opcional)
     const interval = setInterval(loadReservas, 2000);
     
-    // Verificar emails recebidos a cada 30 segundos
-    const emailCheckInterval = setInterval(checkForEmailReplies, 30000);
+    // Verificar e abrir comandas automaticamente a cada minuto
+    const comandaCheckInterval = setInterval(verificarEAbrirComandas, 60000);
     
-    // Verificar imediatamente ao carregar
-    checkForEmailReplies();
+    // Verificar comandas ao carregar
+    verificarEAbrirComandas();
     
     return () => {
       clearInterval(interval);
-      clearInterval(emailCheckInterval);
+      clearInterval(comandaCheckInterval);
       window.removeEventListener('localStorageChange', handleStorageChange);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -125,7 +87,164 @@ export const ReservasTab = () => {
     setLoading(false);
   };
 
+  const loadMesas = () => {
+    const data = localMesas.getAll();
+    setMesas(data);
+  };
+
+  // Função para verificar e abrir comandas automaticamente
+  const verificarEAbrirComandas = () => {
+    const hoje = new Date().toISOString().split('T')[0];
+    const agora = new Date();
+    const horaAtual = `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
+    
+    const reservasConfirmadas = localReservas.getAll().filter(r => 
+      r.estado === 'confirmado' && 
+      r.mesaId && 
+      r.data_reserva === hoje
+    );
+
+    for (const reserva of reservasConfirmadas) {
+      if (!reserva.mesaId) continue;
+
+      // Verificar se já existe comanda para esta reserva
+      const pedidos = localPedidos.getAll();
+      const jaTemComanda = pedidos.some(p => 
+        p.mesaId === reserva.mesaId && 
+        (p.status === 'aberta' || p.status === 'pendente') &&
+        p.nomeCliente === `${reserva.nome} ${reserva.apelido}`
+      );
+
+      if (jaTemComanda) continue;
+
+      // Verificar se está no horário (com tolerância de 30 minutos antes)
+      const [horaReserva, minutoReserva] = reserva.hora_reserva.split(':').map(Number);
+      const [horaAtualNum, minutoAtualNum] = horaAtual.split(':').map(Number);
+      
+      const horaReservaMinutos = horaReserva * 60 + minutoReserva;
+      const horaAtualMinutos = horaAtualNum * 60 + minutoAtualNum;
+      
+      // Abrir comanda se estiver no horário ou até 30 minutos antes
+      if (horaAtualMinutos >= horaReservaMinutos - 30 && horaAtualMinutos <= horaReservaMinutos + 120) {
+        // Verificar se a mesa não está ocupada
+        const pedidosAtivosNaMesa = localMesas.getPedidosAtivos(reserva.mesaId);
+        if (pedidosAtivosNaMesa.length === 0) {
+          // Criar comanda automaticamente
+          const result = localPedidos.create({
+            nomeCliente: `${reserva.nome} ${reserva.apelido}`,
+            mesaId: reserva.mesaId,
+            itens: [],
+            observacoes: `Comanda aberta automaticamente para reserva confirmada (${reserva.data_reserva} às ${reserva.hora_reserva})`,
+          });
+
+          if (result.success) {
+            console.log(`Comanda aberta automaticamente para reserva ${reserva.id}`);
+          }
+        }
+      }
+    }
+  };
+
+  const handleConfirmarComMesa = async () => {
+    if (!reservaParaConfirmar) return;
+
+    if (!mesaSelecionada || mesaSelecionada === "none") {
+      toast.error("Por favor, selecione uma mesa");
+      return;
+    }
+
+    // Gerar token único para confirmação
+    const tokenConfirmacao = crypto.randomUUID();
+    
+    // Guardar a observação antes de atualizar
+    const observacoesParaEmail = observacoesRestaurante.trim() || '';
+
+    const result = localReservas.update(reservaParaConfirmar.id, { 
+      estado: 'confirmado',
+      mesaId: mesaSelecionada,
+      observacoesRestaurante: observacoesParaEmail || undefined,
+      tokenConfirmacao: tokenConfirmacao,
+    });
+
+    if (!result.success) {
+      toast.error(result.error || "Erro ao confirmar reserva");
+      return;
+    }
+
+    toast.success("Reserva confirmada com mesa selecionada!");
+    setMesaDialogOpen(false);
+    setReservaParaConfirmar(null);
+    setMesaSelecionada(null);
+    setObservacoesRestaurante("");
+    loadReservas();
+
+    // Enviar email ao cliente com token de confirmação
+    const reservaAtualizada = localReservas.getById(reservaParaConfirmar.id);
+    if (reservaAtualizada) {
+      try {
+        const mesaNumero = mesas.find(m => m.id === reservaAtualizada.mesaId)?.numero || null;
+        
+        console.log('[FRONTEND] Enviando email com dados:', {
+          estado: reservaAtualizada.estado,
+          tokenConfirmacao: tokenConfirmacao ? 'presente' : 'ausente',
+          observacoesRestaurante: observacoesParaEmail || reservaAtualizada.observacoesRestaurante || 'ausente',
+          observacoesParaEmail: observacoesParaEmail,
+          observacoesDaReserva: reservaAtualizada.observacoesRestaurante,
+          mesaNumero
+        });
+        
+        const emailResult = await emailService.sendReservationEmail({
+          email: reservaAtualizada.email,
+          nome: reservaAtualizada.nome,
+          apelido: reservaAtualizada.apelido,
+          data_reserva: reservaAtualizada.data_reserva,
+          hora_reserva: reservaAtualizada.hora_reserva,
+          numero_pessoas: reservaAtualizada.numero_pessoas,
+          estado: reservaAtualizada.estado,
+          mesaNumero: mesaNumero,
+          observacoesRestaurante: observacoesParaEmail || reservaAtualizada.observacoesRestaurante || undefined,
+          tokenConfirmacao: tokenConfirmacao || undefined,
+        });
+
+        if (emailResult.success) {
+          toast.success("Email enviado ao cliente com sucesso!");
+        } else {
+          toast.warning(`Email não foi enviado: ${emailResult.error}`);
+        }
+      } catch (error) {
+        console.error('Erro ao enviar email:', error);
+      }
+    }
+  };
+
   const updateStatus = async (id: string, estado: EstadoReserva) => {
+    const reserva = localReservas.getById(id);
+    if (!reserva) {
+      toast.error("Reserva não encontrada");
+      return;
+    }
+
+    // Se for confirmar, mostrar diálogo de seleção de mesa
+    if (estado === 'confirmado') {
+      const mesasDisponiveisList = localReservas.getMesasDisponiveisParaReserva(
+        reserva.data_reserva,
+        reserva.hora_reserva
+      );
+      
+      if (mesasDisponiveisList.length === 0) {
+        toast.error("Não há mesas disponíveis para este horário. Por favor, verifique as mesas ocupadas.");
+        return;
+      }
+
+      setMesasDisponiveis(mesasDisponiveisList);
+      setReservaParaConfirmar(reserva);
+      setMesaSelecionada(reserva.mesaId || null);
+      setObservacoesRestaurante(reserva.observacoesRestaurante || "");
+      setMesaDialogOpen(true);
+      return;
+    }
+
+    // Para outros estados, atualizar diretamente
     const result = localReservas.update(id, { estado });
 
     if (!result.success) {
@@ -149,6 +268,8 @@ export const ReservasTab = () => {
       const reservaAtualizada = localReservas.getById(id);
       if (reservaAtualizada) {
         try {
+          const mesaNumero = mesas.find(m => m.id === reservaAtualizada.mesaId)?.numero || null;
+          
           const emailResult = await emailService.sendReservationEmail({
             email: reservaAtualizada.email,
             nome: reservaAtualizada.nome,
@@ -157,7 +278,7 @@ export const ReservasTab = () => {
             hora_reserva: reservaAtualizada.hora_reserva,
             numero_pessoas: reservaAtualizada.numero_pessoas,
             estado: reservaAtualizada.estado,
-            observacoes: reservaAtualizada.observacoes || [],
+            mesaNumero: mesaNumero,
           });
 
           if (emailResult.success) {
@@ -169,69 +290,6 @@ export const ReservasTab = () => {
           console.error('Erro ao enviar email:', error);
           toast.warning("Status atualizado, mas houve um erro ao enviar o email.");
         }
-      }
-    }
-  };
-
-  const toggleObservacoes = (reservaId: string) => {
-    const novas = new Set(observacoesAbertas);
-    if (novas.has(reservaId)) {
-      novas.delete(reservaId);
-    } else {
-      novas.add(reservaId);
-    }
-    setObservacoesAbertas(novas);
-  };
-
-  const adicionarObservacao = async (reservaId: string) => {
-    const mensagem = novaObservacao[reservaId]?.trim();
-    if (!mensagem) {
-      toast.error("Por favor, escreva uma observação");
-      return;
-    }
-
-    const user = localAuth.getCurrentUser();
-    // Extrair nome do email (parte antes do @) ou usar email completo
-    const autorNome = user?.email 
-      ? user.email.split('@')[0].charAt(0).toUpperCase() + user.email.split('@')[0].slice(1)
-      : "Usuário do Restaurante";
-
-    const result = localReservas.addObservacao(reservaId, mensagem, "admin", autorNome);
-
-    if (!result.success) {
-      toast.error(result.error || "Erro ao adicionar observação");
-      return;
-    }
-
-    toast.success("Observação adicionada com sucesso!");
-    setNovaObservacao({ ...novaObservacao, [reservaId]: "" });
-    
-    // Recarregar reservas para obter dados atualizados
-    loadReservas();
-
-    // Enviar email ao cliente com a nova observação
-    const reservaAtualizada = localReservas.getById(reservaId);
-    if (reservaAtualizada) {
-      try {
-        const emailResult = await emailService.sendReservationEmail({
-          email: reservaAtualizada.email,
-          nome: reservaAtualizada.nome,
-          apelido: reservaAtualizada.apelido,
-          data_reserva: reservaAtualizada.data_reserva,
-          hora_reserva: reservaAtualizada.hora_reserva,
-          numero_pessoas: reservaAtualizada.numero_pessoas,
-          estado: reservaAtualizada.estado,
-          observacoes: reservaAtualizada.observacoes || [],
-        });
-
-        if (emailResult.success) {
-          toast.success("Email com observação enviado ao cliente!");
-        } else {
-          toast.warning(`Observação adicionada, mas email não foi enviado: ${emailResult.error}`);
-        }
-      } catch (error) {
-        console.error('Erro ao enviar email:', error);
-        toast.warning("Observação adicionada, mas houve um erro ao enviar o email.");
       }
     }
   };
@@ -323,111 +381,45 @@ export const ReservasTab = () => {
                     <p className="text-muted-foreground">Pessoas</p>
                     <p className="font-medium">{reserva.numero_pessoas}</p>
                   </div>
-                </div>
-
-                {/* Seção de Observações */}
-                <div className="mt-4 pt-4 border-t">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                      <p className="text-sm font-medium">
-                        Observações ({reserva.observacoes?.length || 0})
+                  {reserva.mesaId && (
+                    <div>
+                      <p className="text-muted-foreground">Mesa</p>
+                      <p className="font-medium">
+                        Mesa {mesas.find(m => m.id === reserva.mesaId)?.numero || reserva.mesaId}
                       </p>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => toggleObservacoes(reserva.id)}
-                    >
-                      {observacoesAbertas.has(reserva.id) ? "Ocultar" : "Ver"}
-                    </Button>
-                  </div>
-
-                  {observacoesAbertas.has(reserva.id) && (
-                    <div className="space-y-3">
-                      {/* Histórico de Observações */}
-                      {reserva.observacoes && reserva.observacoes.length > 0 ? (
-                        <div className="space-y-2 max-h-48 overflow-y-auto">
-                          {reserva.observacoes.map((obs: Observacao) => (
-                            <div
-                              key={obs.id}
-                              className={`p-3 rounded-lg text-sm ${
-                                obs.autor === "cliente"
-                                  ? "bg-accent/30 border border-accent/50"
-                                  : "bg-primary/5 border border-primary/20"
-                              }`}
-                            >
-                              <div className="flex items-start justify-between mb-1">
-                                <div className="flex items-center gap-2">
-                                  <Badge
-                                    variant={obs.autor === "cliente" ? "secondary" : "default"}
-                                    className="text-xs"
-                                  >
-                                    {obs.autor === "cliente" ? "Cliente" : "Restaurante"}
-                                  </Badge>
-                                  {obs.autor_nome && (
-                                    <span className="text-xs text-muted-foreground">
-                                      {obs.autor === "cliente" 
-                                        ? obs.autor_nome 
-                                        : obs.autor_nome}
-                                    </span>
-                                  )}
-                                </div>
-                                <span className="text-xs text-muted-foreground">
-                                  {new Date(obs.created_at).toLocaleDateString("pt-PT", {
-                                    day: "2-digit",
-                                    month: "2-digit",
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
-                                </span>
-                              </div>
-                              <p className="text-foreground whitespace-pre-wrap">{obs.mensagem}</p>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground text-center py-4">
-                          Nenhuma observação ainda
-                        </p>
-                      )}
-
-                      {/* Campo para adicionar nova observação (apenas para admins) */}
-                      <div className="space-y-2 pt-2 border-t">
-                        <Label htmlFor={`obs-${reserva.id}`} className="text-sm">
-                          Adicionar Observação
-                        </Label>
-                        <div className="flex gap-2">
-                          <Textarea
-                            id={`obs-${reserva.id}`}
-                            value={novaObservacao[reserva.id] || ""}
-                            onChange={(e) =>
-                              setNovaObservacao({
-                                ...novaObservacao,
-                                [reserva.id]: e.target.value,
-                              })
-                            }
-                            placeholder="Escreva uma observação para o cliente..."
-                            rows={2}
-                            maxLength={500}
-                            className="flex-1"
-                          />
-                          <Button
-                            size="sm"
-                            onClick={() => adicionarObservacao(reserva.id)}
-                            disabled={!novaObservacao[reserva.id]?.trim()}
-                            className="self-end"
-                          >
-                            <Send className="h-4 w-4" />
-                          </Button>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          {(novaObservacao[reserva.id]?.length || 0)}/500 caracteres
-                        </p>
-                      </div>
+                  )}
+                  {reserva.estado === 'confirmado' && reserva.confirmadoPeloCliente && (
+                    <div className="md:col-span-2">
+                      <p className="text-muted-foreground">Status do Cliente</p>
+                      <p className="font-medium text-green-600">✓ Confirmado pelo cliente</p>
                     </div>
                   )}
                 </div>
+
+                {reserva.estado === 'confirmado' && (
+                  <div className="mt-4 pt-4 border-t">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-medium text-muted-foreground">
+                        {reserva.observacoesRestaurante ? 'Observações do Restaurante' : 'Adicionar Observações'}
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setReservaParaEditar(reserva);
+                          setObservacoesEditadas(reserva.observacoesRestaurante || "");
+                          setEditarObservacoesDialogOpen(true);
+                        }}
+                      >
+                        {reserva.observacoesRestaurante ? 'Editar' : 'Adicionar'}
+                      </Button>
+                    </div>
+                    {reserva.observacoesRestaurante && (
+                      <p className="text-sm whitespace-pre-wrap bg-muted p-3 rounded-lg">{reserva.observacoesRestaurante}</p>
+                    )}
+                  </div>
+                )}
 
                 {/* Seletor de Status */}
                 <div className="mt-4 pt-4 border-t">
@@ -466,6 +458,216 @@ export const ReservasTab = () => {
           ))}
         </div>
       )}
+
+      {/* Dialog para selecionar mesa ao confirmar reserva */}
+      <Dialog open={mesaDialogOpen} onOpenChange={setMesaDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirmar Reserva e Selecionar Mesa</DialogTitle>
+            <DialogDescription>
+              Selecione uma mesa disponível para esta reserva. A comanda será aberta automaticamente no horário da reserva.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {reservaParaConfirmar && (
+              <div className="p-3 bg-muted rounded-lg">
+                <p className="text-sm font-medium">{reservaParaConfirmar.nome} {reservaParaConfirmar.apelido}</p>
+                <p className="text-xs text-muted-foreground">
+                  {new Date(reservaParaConfirmar.data_reserva).toLocaleDateString("pt-PT")} às {reservaParaConfirmar.hora_reserva}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {reservaParaConfirmar.numero_pessoas} {reservaParaConfirmar.numero_pessoas === 1 ? 'pessoa' : 'pessoas'}
+                </p>
+              </div>
+            )}
+
+            <div>
+              <Label htmlFor="mesa-select">Mesa Disponível</Label>
+              <Select
+                value={mesaSelecionada || undefined}
+                onValueChange={(value) => {
+                  if (value === "none") {
+                    setMesaSelecionada(null);
+                  } else {
+                    setMesaSelecionada(value || null);
+                  }
+                }}
+              >
+                <SelectTrigger id="mesa-select">
+                  <SelectValue placeholder="Selecione uma mesa" />
+                </SelectTrigger>
+                <SelectContent>
+                  {mesasDisponiveis.length === 0 ? (
+                    <SelectItem value="none" disabled>
+                      Nenhuma mesa disponível
+                    </SelectItem>
+                  ) : (
+                    <>
+                      <SelectItem value="none">Sem mesa específica</SelectItem>
+                      {mesasDisponiveis.map((mesa) => (
+                        <SelectItem key={mesa.id} value={mesa.id}>
+                          Mesa {mesa.numero} (Capacidade: {mesa.capacidade})
+                        </SelectItem>
+                      ))}
+                    </>
+                  )}
+                </SelectContent>
+              </Select>
+              {mesasDisponiveis.length > 0 && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  {mesasDisponiveis.length} {mesasDisponiveis.length === 1 ? 'mesa disponível' : 'mesas disponíveis'} para este horário
+                </p>
+              )}
+            </div>
+
+            <div>
+              <Label htmlFor="observacoes-restaurante">Observações do Restaurante (opcional)</Label>
+              <Textarea
+                id="observacoes-restaurante"
+                value={observacoesRestaurante}
+                onChange={(e) => setObservacoesRestaurante(e.target.value)}
+                placeholder="Ex: Mesa perto da janela, vista para o mar, área reservada..."
+                rows={3}
+                maxLength={500}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                {observacoesRestaurante.length}/500 caracteres
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setMesaDialogOpen(false);
+                  setReservaParaConfirmar(null);
+                  setMesaSelecionada(null);
+                  setObservacoesRestaurante("");
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleConfirmarComMesa}
+                disabled={!mesaSelecionada || mesaSelecionada === "none" || mesasDisponiveis.length === 0}
+              >
+                Confirmar Reserva
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog para editar observações */}
+      <Dialog open={editarObservacoesDialogOpen} onOpenChange={setEditarObservacoesDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar Observações e Reenviar Email</DialogTitle>
+            <DialogDescription>
+              Edite as observações e um novo email será enviado ao cliente com um novo link de confirmação.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {reservaParaEditar && (
+              <div className="p-3 bg-muted rounded-lg">
+                <p className="text-sm font-medium">{reservaParaEditar.nome} {reservaParaEditar.apelido}</p>
+                <p className="text-xs text-muted-foreground">
+                  {new Date(reservaParaEditar.data_reserva).toLocaleDateString("pt-PT")} às {reservaParaEditar.hora_reserva}
+                </p>
+              </div>
+            )}
+
+            <div>
+              <Label htmlFor="observacoes-editadas">Observações do Restaurante</Label>
+              <Textarea
+                id="observacoes-editadas"
+                value={observacoesEditadas}
+                onChange={(e) => setObservacoesEditadas(e.target.value)}
+                placeholder="Ex: Mesa perto da janela, vista para o mar, área reservada..."
+                rows={4}
+                maxLength={500}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                {observacoesEditadas.length}/500 caracteres
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setEditarObservacoesDialogOpen(false);
+                  setReservaParaEditar(null);
+                  setObservacoesEditadas("");
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={async () => {
+                  if (!reservaParaEditar) return;
+
+                  // Gerar novo token
+                  const novoToken = crypto.randomUUID();
+
+                  // Atualizar reserva com novas observações e novo token
+                  const result = localReservas.update(reservaParaEditar.id, {
+                    observacoesRestaurante: observacoesEditadas.trim() || undefined,
+                    tokenConfirmacao: novoToken,
+                    confirmadoPeloCliente: false, // Resetar confirmação do cliente
+                  });
+
+                  if (!result.success) {
+                    toast.error(result.error || "Erro ao atualizar observações");
+                    return;
+                  }
+
+                  toast.success("Observações atualizadas!");
+
+                  // Enviar novo email ao cliente
+                  const reservaAtualizada = localReservas.getById(reservaParaEditar.id);
+                  if (reservaAtualizada) {
+                    try {
+                      const mesaNumero = mesas.find(m => m.id === reservaAtualizada.mesaId)?.numero || null;
+                      
+                      const emailResult = await emailService.sendReservationEmail({
+                        email: reservaAtualizada.email,
+                        nome: reservaAtualizada.nome,
+                        apelido: reservaAtualizada.apelido,
+                        data_reserva: reservaAtualizada.data_reserva,
+                        hora_reserva: reservaAtualizada.hora_reserva,
+                        numero_pessoas: reservaAtualizada.numero_pessoas,
+                        estado: reservaAtualizada.estado,
+                        mesaNumero: mesaNumero,
+                        observacoesRestaurante: reservaAtualizada.observacoesRestaurante,
+                        tokenConfirmacao: novoToken,
+                      });
+
+                      if (emailResult.success) {
+                        toast.success("Novo email enviado ao cliente com sucesso!");
+                      } else {
+                        toast.warning(`Email não foi enviado: ${emailResult.error}`);
+                      }
+                    } catch (error) {
+                      console.error('Erro ao enviar email:', error);
+                      toast.warning("Observações atualizadas, mas houve um erro ao enviar o email.");
+                    }
+                  }
+
+                  setEditarObservacoesDialogOpen(false);
+                  setReservaParaEditar(null);
+                  setObservacoesEditadas("");
+                  loadReservas();
+                }}
+              >
+                Salvar e Enviar Email
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

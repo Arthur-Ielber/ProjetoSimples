@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { localMenu } from "@/lib/localStorage";
+import { localMenu, localSections, MenuSection } from "@/lib/localStorage";
 import { Loader2 } from "lucide-react";
 
 interface MenuItem {
@@ -19,6 +19,7 @@ interface MenuModalProps {
 
 export const MenuModal = ({ open, onOpenChange }: MenuModalProps) => {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [sections, setSections] = useState<MenuSection[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadMenu = useCallback(() => {
@@ -33,6 +34,12 @@ export const MenuModal = ({ open, onOpenChange }: MenuModalProps) => {
       return a.nome.localeCompare(b.nome);
     });
     setMenuItems(sorted);
+    
+    // Carregar seções ordenadas
+    const sectionsData = localSections.getAll();
+    const sortedSections = [...sectionsData].sort((a, b) => a.ordem - b.ordem);
+    setSections(sortedSections);
+    
     setLoading(false);
   }, []);
 
@@ -43,14 +50,14 @@ export const MenuModal = ({ open, onOpenChange }: MenuModalProps) => {
     
     // Listener para atualizar quando houver mudanças no localStorage
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'table_menu_ementa' && open) {
+      if ((e.key === 'table_menu_ementa' || e.key === 'table_menu_secoes') && open) {
         loadMenu();
       }
     };
     
     // Listener para atualizar quando houver mudanças na mesma aba
     const handleCustomStorageChange = (e: CustomEvent) => {
-      if (e.detail?.key === 'table_menu_ementa' && open) {
+      if ((e.detail?.key === 'table_menu_ementa' || e.detail?.key === 'table_menu_secoes') && open) {
         loadMenu();
       }
     };
@@ -63,8 +70,6 @@ export const MenuModal = ({ open, onOpenChange }: MenuModalProps) => {
       window.removeEventListener('localStorageChange', handleCustomStorageChange as EventListener);
     };
   }, [open, loadMenu]);
-
-  const sections = ["Entradas", "Pratos Principais", "Sobremesas", "Bebidas"];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -82,13 +87,13 @@ export const MenuModal = ({ open, onOpenChange }: MenuModalProps) => {
         ) : (
           <div className="space-y-8 py-4">
             {sections.map((section) => {
-              const items = menuItems.filter((item) => item.secao === section);
+              const items = menuItems.filter((item) => item.secao === section.nome);
               if (items.length === 0) return null;
 
               return (
-                <div key={section}>
+                <div key={section.id}>
                   <h3 className="text-2xl font-serif text-primary mb-4 border-b pb-2">
-                    {section}
+                    {section.nome}
                   </h3>
                   <div className="space-y-4">
                     {items.map((item) => (

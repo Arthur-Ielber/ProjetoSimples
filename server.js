@@ -13,51 +13,61 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-// Configurar transporter do Gmail
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
-
-// Validar variáveis de ambiente
-if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-  console.error('ERRO: EMAIL_USER e EMAIL_PASS devem estar configurados no arquivo .env');
-  process.exit(1);
+// Configurar transporter do Gmail (opcional - só funciona se EMAIL_USER e EMAIL_PASS estiverem configurados)
+let transporter = null;
+if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+  transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+  });
+  console.log('[BACKEND] Serviço de email configurado com sucesso');
+} else {
+  console.warn('[BACKEND] AVISO: EMAIL_USER e EMAIL_PASS não estão configurados. Funcionalidades de email estarão desabilitadas.');
+  console.warn('[BACKEND] Para habilitar, adicione no arquivo .env:');
+  console.warn('[BACKEND] EMAIL_USER=seu_email@gmail.com');
+  console.warn('[BACKEND] EMAIL_PASS=sua_senha_de_app');
 }
 
-// Função para formatar o histórico de observações
+// Função para formatar o histórico de observações (apenas última mensagem)
 function formatarObservacoes(observacoes) {
   if (!observacoes || observacoes.length === 0) {
     return '<p><em>Nenhuma observação ainda.</em></p>';
   }
 
-  let html = '<div style="margin-top: 20px; padding: 15px; background-color: #f5f5f5; border-radius: 5px;">';
-  html += '<h3 style="margin-top: 0; color: #333;">Histórico de Interação:</h3>';
+  // Pegar apenas a última observação
+  const ultimaObservacao = observacoes[observacoes.length - 1];
   
-  observacoes.forEach((obs) => {
-    const data = new Date(obs.created_at).toLocaleString('pt-PT', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-    
-    const autorLabel = obs.autor === 'cliente' ? 'Você' : (obs.autor_nome || 'Administrador');
-    const corFundo = obs.autor === 'cliente' ? '#e3f2fd' : '#fff3e0';
-    
-    html += `
-      <div style="margin-bottom: 15px; padding: 10px; background-color: ${corFundo}; border-left: 3px solid ${obs.autor === 'cliente' ? '#2196F3' : '#FF9800'}; border-radius: 3px;">
-        <div style="font-size: 12px; color: #666; margin-bottom: 5px;">
-          <strong>${autorLabel}</strong> - ${data}
-        </div>
-        <div style="color: #333; white-space: pre-wrap;">${obs.mensagem}</div>
-      </div>
-    `;
+  const data = new Date(ultimaObservacao.created_at).toLocaleString('pt-PT', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
   });
+  
+  // Usar "Restaurante" ao invés de "Admin" ou "Administrador"
+  const autorLabel = ultimaObservacao.autor === 'cliente' 
+    ? 'Você' 
+    : (ultimaObservacao.autor_nome === 'Administrador' || ultimaObservacao.autor_nome === 'Admin' 
+      ? 'Restaurante' 
+      : (ultimaObservacao.autor_nome || 'Restaurante'));
+  
+  const corFundo = ultimaObservacao.autor === 'cliente' ? '#e3f2fd' : '#fff3e0';
+  
+  let html = '<div style="margin-top: 20px; padding: 15px; background-color: #f5f5f5; border-radius: 5px;">';
+  html += '<h3 style="margin-top: 0; color: #333;">Última Mensagem:</h3>';
+  
+  html += `
+    <div style="margin-bottom: 15px; padding: 10px; background-color: ${corFundo}; border-left: 3px solid ${ultimaObservacao.autor === 'cliente' ? '#2196F3' : '#FF9800'}; border-radius: 3px;">
+      <div style="font-size: 12px; color: #666; margin-bottom: 5px;">
+        <strong>${autorLabel}</strong> - ${data}
+      </div>
+      <div style="color: #333; white-space: pre-wrap;">${ultimaObservacao.mensagem}</div>
+    </div>
+  `;
   
   html += '</div>';
   return html;
@@ -215,6 +225,14 @@ app.post('/api/send-reservation-confirmation', async (req, res) => {
       `,
     };
 
+    if (!transporter) {
+      console.warn('Email não enviado: serviço de email não configurado');
+      return res.json({ 
+        success: true, 
+        message: 'Reserva criada com sucesso (email não enviado - serviço não configurado)' 
+      });
+    }
+
     const info = await transporter.sendMail(mailOptions);
     console.log('Email de confirmação enviado com sucesso:', info.messageId);
 
@@ -242,7 +260,9 @@ app.post('/api/send-reservation-email', async (req, res) => {
       hora_reserva, 
       numero_pessoas,
       estado,
-      observacoes = []
+      mesaNumero,
+      observacoesRestaurante,
+      tokenConfirmacao
     } = req.body;
 
     if (!email || !nome || !estado) {
@@ -260,7 +280,99 @@ app.post('/api/send-reservation-email', async (req, res) => {
     });
 
     const mensagemStatus = getMensagemStatus(estado);
-    const historicoObservacoes = formatarObservacoes(observacoes);
+    
+    // Log para debug
+    console.log('[EMAIL DEBUG] Enviando email:', {
+      email,
+      estado,
+      tokenConfirmacao: tokenConfirmacao ? 'presente (' + tokenConfirmacao.substring(0, 8) + '...)' : 'ausente',
+      observacoesRestaurante: observacoesRestaurante ? 'presente (' + observacoesRestaurante.substring(0, 50) + '...)' : 'ausente',
+      mesaNumero,
+      mostrarBotoes: estado === 'confirmado' && tokenConfirmacao ? 'SIM' : 'NÃO',
+      estadoIgualConfirmado: estado === 'confirmado',
+      temToken: !!tokenConfirmacao
+    });
+    
+    // Construir HTML das observações
+    let observacoesHTML = '';
+    // Garantir que observacoesRestaurante seja tratado corretamente
+    const observacoesParaEmail = (observacoesRestaurante && typeof observacoesRestaurante === 'string') 
+      ? observacoesRestaurante.trim() 
+      : '';
+    const deveMostrarObservacoes = observacoesParaEmail.length > 0 || (estado === 'confirmado' && tokenConfirmacao);
+    
+    console.log('[EMAIL DEBUG] Processando observações:', {
+      observacoesRestauranteRecebido: observacoesRestaurante,
+      tipoObservacoes: typeof observacoesRestaurante,
+      observacoesParaEmail,
+      deveMostrarObservacoes
+    });
+    
+    if (deveMostrarObservacoes) {
+      observacoesHTML = `
+            <div class="observacoes-box" style="background-color: #fff3e0; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #FF9800;">
+              <h3 style="margin-top: 0; color: #333; font-size: 16px; font-weight: bold; margin-bottom: 10px;">Observações do Restaurante:</h3>
+              ${observacoesParaEmail ? `
+              <p style="color: #333; margin: 0; white-space: pre-wrap; line-height: 1.6; font-size: 14px;">${observacoesParaEmail}</p>
+              ` : `
+              <p style="color: #666; margin: 0; font-style: italic; font-size: 14px;">Nenhuma observação adicional.</p>
+              `}
+            </div>
+      `;
+    }
+
+    // Construir HTML dos botões
+    let botoesHTML = '';
+    // Verificar se deve mostrar botões - estado deve ser 'confirmado' e deve haver token
+    const deveMostrarBotoes = estado === 'confirmado' && tokenConfirmacao && tokenConfirmacao.trim().length > 0;
+    
+    console.log('[EMAIL DEBUG] Verificando botões e observações:', {
+      estado,
+      tokenConfirmacao: tokenConfirmacao ? tokenConfirmacao.substring(0, 20) + '...' : 'null/undefined',
+      observacoesParaEmail: observacoesParaEmail ? observacoesParaEmail.substring(0, 50) + '...' : 'vazio',
+      deveMostrarBotoes,
+      deveMostrarObservacoes,
+      botoesHTMLLength: botoesHTML.length,
+      observacoesHTMLLength: observacoesHTML.length
+    });
+    
+    if (deveMostrarBotoes) {
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+      botoesHTML = `
+            <div class="button-container" style="margin: 30px 0; text-align: center; padding: 20px 0;">
+              <p style="margin-bottom: 20px; color: #333; font-size: 16px; font-weight: bold;">
+                Por favor, confirme ou cancele a sua reserva:
+              </p>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+                <tr>
+                  <td style="padding: 10px;">
+                    <a href="${frontendUrl}/confirmar-reserva/${tokenConfirmacao}" 
+                       style="display: inline-block; padding: 15px 35px; background-color: #4CAF50; color: #ffffff; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; text-align: center;">
+                      ✓ Confirmar Reserva
+                    </a>
+                  </td>
+                  <td style="padding: 10px;">
+                    <a href="${frontendUrl}/cancelar-reserva/${tokenConfirmacao}" 
+                       style="display: inline-block; padding: 15px 35px; background-color: #f44336; color: #ffffff; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; text-align: center;">
+                      ✗ Desistir
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin-top: 15px; color: #666; font-size: 12px;">
+                Clique em um dos botões acima para confirmar ou cancelar a sua reserva.
+              </p>
+            </div>
+      `;
+    }
+    
+    // Log do HTML gerado (primeiros 200 caracteres)
+    console.log('[EMAIL DEBUG] HTML gerado:', {
+      botoesHTMLLength: botoesHTML.length,
+      observacoesHTMLLength: observacoesHTML.length,
+      botoesHTMLPreview: botoesHTML ? botoesHTML.substring(0, 200) + '...' : 'VAZIO',
+      observacoesHTMLPreview: observacoesHTML ? observacoesHTML.substring(0, 200) + '...' : 'VAZIO'
+    });
 
     const mailOptions = {
       from: process.env.EMAIL_USER,
@@ -307,6 +419,37 @@ app.post('/api/send-reservation-email', async (req, res) => {
               font-weight: bold;
               color: #666;
             }
+            .button-container {
+              margin: 30px 0;
+              text-align: center;
+              padding: 20px 0;
+            }
+            .button {
+              display: inline-block;
+              padding: 15px 35px;
+              margin: 10px;
+              text-decoration: none;
+              border-radius: 5px;
+              font-weight: bold;
+              font-size: 16px;
+              border: none;
+              cursor: pointer;
+            }
+            .button-confirm {
+              background-color: #4CAF50 !important;
+              color: white !important;
+            }
+            .button-cancel {
+              background-color: #f44336 !important;
+              color: white !important;
+            }
+            .observacoes-box {
+              background-color: #fff3e0;
+              padding: 15px;
+              border-radius: 5px;
+              margin: 15px 0;
+              border-left: 4px solid #FF9800;
+            }
             .footer {
               margin-top: 20px;
               padding-top: 20px;
@@ -339,9 +482,16 @@ app.post('/api/send-reservation-email', async (req, res) => {
               <div class="info-row">
                 <span class="info-label">Número de Pessoas:</span> ${numero_pessoas}
               </div>
+              ${mesaNumero ? `
+              <div class="info-row">
+                <span class="info-label">Mesa:</span> Mesa ${mesaNumero}
+              </div>
+              ` : ''}
             </div>
             
-            ${historicoObservacoes}
+            ${observacoesHTML}
+            
+            ${botoesHTML}
             
             <p style="margin-top: 20px;">
               Se tiver alguma dúvida ou precisar fazer alterações, não hesite em contactar-nos.
@@ -358,6 +508,14 @@ app.post('/api/send-reservation-email', async (req, res) => {
       `,
     };
 
+    if (!transporter) {
+      console.warn('Email não enviado: serviço de email não configurado');
+      return res.json({ 
+        success: true, 
+        message: 'Reserva atualizada com sucesso (email não enviado - serviço não configurado)' 
+      });
+    }
+
     await transporter.sendMail(mailOptions);
 
     res.json({ 
@@ -373,25 +531,117 @@ app.post('/api/send-reservation-email', async (req, res) => {
   }
 });
 
-// Função auxiliar para extrair texto do email
+// Função para decodificar quoted-printable
+function decodeQuotedPrintable(text) {
+  if (!text) return '';
+  
+  return text
+    .replace(/=\r?\n/g, '') // Remover quebras de linha soft
+    .replace(/=([0-9A-F]{2})/gi, (match, hex) => {
+      return String.fromCharCode(parseInt(hex, 16));
+    })
+    .replace(/=\n/g, '\n'); // Restaurar quebras de linha hard
+}
+
+// Função auxiliar para extrair texto limpo do email (APENAS última mensagem)
 function extractTextFromEmail(body) {
-  if (typeof body === 'string') {
-    // Remover tags HTML e decodificar entidades
-    return body
-      .replace(/<[^>]*>/g, '')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .trim();
+  if (!body) return '';
+  
+  let text = typeof body === 'string' ? body : JSON.stringify(body);
+  
+  // ESTRATÉGIA ULTRA AGRESSIVA: Processar linha por linha desde o início
+  // Ignorar COMPLETAMENTE qualquer linha que seja header MIME
+  const allLines = text.split(/\r?\n/);
+  const validContentLines = [];
+  let foundFirstValidLine = false;
+  
+  // Processar linha por linha
+  for (let i = 0; i < allLines.length; i++) {
+    let line = allLines[i];
+    const trimmed = line.trim();
+    
+    // IGNORAR COMPLETAMENTE qualquer linha que seja header MIME ou boundary
+    if (trimmed.match(/^--[a-f0-9]+$/i) ||
+        trimmed.match(/^Content-Type:/i) ||
+        trimmed.match(/^Content-Transfer-Encoding:/i) ||
+        trimmed.match(/^charset=/i) ||
+        trimmed.match(/^boundary=/i) ||
+        trimmed.match(/^[A-Za-z-]+:\s*[^\r\n]+$/)) {
+      continue; // Pular completamente esta linha
+    }
+    
+    // Verificar se é citação (parar aqui - já passamos do conteúdo válido)
+    if (trimmed.match(/Em\s+.*?\s+escreveu:/i) ||
+        trimmed.match(/On\s+.*?\s+wrote:/i) ||
+        trimmed.match(/^De:\s*/i) ||
+        trimmed.match(/^From:\s*/i) ||
+        trimmed.startsWith('>')) {
+      break; // Parar completamente
+    }
+    
+    // Se a linha não está vazia e não é header MIME nem citação, é conteúdo válido
+    if (trimmed && trimmed.length > 0) {
+      // Verificar se não contém palavras suspeitas de header MIME
+      const hasMimeKeywords = trimmed.match(/Content-Type|Content-Transfer|charset|boundary|--[a-f0-9]+/i);
+      if (!hasMimeKeywords) {
+        validContentLines.push(trimmed);
+        foundFirstValidLine = true;
+        // PARAR após encontrar a primeira linha válida - só queremos UMA mensagem
+        break;
+      }
+    }
   }
-  return '';
+  
+  // Se não encontrou nenhuma linha válida, retornar vazio
+  if (validContentLines.length === 0) {
+    return '';
+  }
+  
+  // Pegar apenas a primeira linha válida
+  text = validContentLines[0];
+  
+  // Decodificar quoted-printable
+  if (text.includes('=') && (text.includes('=C3') || text.includes('=20') || text.includes('=3D') || text.includes('=0A'))) {
+    text = decodeQuotedPrintable(text);
+  }
+  
+  // Limpeza final: remover qualquer coisa que possa ter sobrado
+  text = text.replace(/--[a-f0-9]+/gi, '');
+  text = text.replace(/Content-Type:.*?(\r?\n|$)/gi, '');
+  text = text.replace(/Content-Transfer-Encoding:.*?(\r?\n|$)/gi, '');
+  text = text.replace(/charset=.*?(\r?\n|$)/gi, '');
+  text = text.replace(/boundary=.*?(\r?\n|$)/gi, '');
+  text = text.replace(/^[A-Za-z-]+:\s*[^\r\n]+$/gim, '');
+  text = text.trim();
+  
+  // Se ainda contiver palavras suspeitas de headers MIME, descartar
+  if (text.match(/Content-Type|Content-Transfer|charset|boundary|--[a-f0-9]+/i)) {
+    return '';
+  }
+  
+  // Limitar tamanho máximo
+  if (text.length > 200) {
+    text = text.substring(0, 200).trim();
+  }
+  
+  // Limpar espaços e quebras excessivas - converter tudo para uma linha
+  text = text.replace(/[ \t\n\r]+/g, ' ').trim();
+  
+  // Remover qualquer caractere estranho no início/fim
+  text = text.replace(/^[^a-zA-Z0-9áéíóúãõçÁÉÍÓÚÃÕÇ]+|[^a-zA-Z0-9áéíóúãõçÁÉÍÓÚÃÕÇ.,!?]+$/g, '').trim();
+  
+  return text || '';
 }
 
 // Função para processar emails recebidos e extrair respostas
 async function checkForEmailReplies() {
   try {
+    // Verificar se as credenciais de email estão configuradas
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+      console.warn('[BACKEND] Verificação de emails desabilitada: EMAIL_USER e EMAIL_PASS não configurados');
+      return [];
+    }
+
     const config = {
       imap: {
         user: process.env.EMAIL_USER,
@@ -418,6 +668,8 @@ async function checkForEmailReplies() {
 
     const replies = [];
 
+    const adminEmail = process.env.EMAIL_USER?.toLowerCase() || '';
+
     for (const message of messages) {
       try {
         const header = message.parts.find(part => part.which === 'HEADER');
@@ -428,6 +680,12 @@ async function checkForEmailReplies() {
         const from = (header.body.from && Array.isArray(header.body.from)) 
           ? header.body.from[0] 
           : (header.body.from || '');
+        const to = (header.body.to && Array.isArray(header.body.to))
+          ? header.body.to[0]
+          : (header.body.to || '');
+        const replyTo = (header.body['reply-to'] && Array.isArray(header.body['reply-to']))
+          ? header.body['reply-to'][0]
+          : (header.body['reply-to'] || to);
         const subject = (header.body.subject && Array.isArray(header.body.subject))
           ? header.body.subject[0]
           : (header.body.subject || '');
@@ -435,34 +693,42 @@ async function checkForEmailReplies() {
           ? header.body.date[0]
           : (header.body.date || new Date().toISOString());
         
-        // Verificar se é uma resposta a um email nosso (contém "Re:" ou "RE:" no assunto)
-        const isReply = subject.toLowerCase().includes('re:') || 
-                       subject.toLowerCase().includes('reserva') ||
-                       subject.toLowerCase().includes('atualização');
+        // Extrair email do remetente
+        const fromEmailMatch = from.match(/<(.+)>/) || from.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+        const fromEmail = fromEmailMatch ? (fromEmailMatch[1] || fromEmailMatch[0]).toLowerCase() : '';
+        
+        // Extrair email do destinatário (para identificar quando admin responde)
+        const toEmailMatch = (replyTo || to).match(/<(.+)>/) || (replyTo || to).match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+        const toEmail = toEmailMatch ? (toEmailMatch[1] || toEmailMatch[0]).toLowerCase() : '';
+        
+        // Determinar se é do admin ou cliente
+        const isFromAdmin = fromEmail === adminEmail;
+        const targetEmail = isFromAdmin ? toEmail : fromEmail; // Email do cliente para buscar reserva
+        
+        // Verificar se é uma resposta relacionada a reserva
+        const isReservationRelated = subject.toLowerCase().includes('re:') || 
+                                     subject.toLowerCase().includes('reserva') ||
+                                     subject.toLowerCase().includes('atualização') ||
+                                     subject.toLowerCase().includes('confirmação');
 
-        if (isReply) {
+        if (isReservationRelated && targetEmail) {
           const bodyText = typeof text.body === 'string' 
             ? text.body 
             : (text.body ? JSON.stringify(text.body) : '');
           
-          const extractedText = extractTextFromEmail(bodyText);
-          
-          // Extrair apenas a resposta do cliente (remover citações de emails anteriores)
-          const replyText = extractedText
-            .split(/On .* wrote:/i)[0]
-            .split(/De:.*$/m)[0]
-            .split(/From:.*$/m)[0]
-            .split(/-----Original Message-----/i)[0]
-            .split(/Em .* escreveu:/i)[0]
-            .trim();
+          const replyText = extractTextFromEmail(bodyText);
 
-          if (replyText && replyText.length > 10) {
+          // Aceitar mensagens mais curtas (mínimo 3 caracteres para permitir "Ok", "Sim", etc)
+          if (replyText && replyText.length >= 3 && replyText.length < 5000) {
             replies.push({
               from: from,
+              to: to || replyTo,
               subject: subject,
               date: date,
               message: replyText,
               messageId: message.attributes.uid,
+              isFromAdmin: isFromAdmin,
+              targetEmail: targetEmail, // Email do cliente para buscar a reserva
             });
           }
         }

@@ -84,25 +84,35 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen bg-background">
       <header className="bg-card border-b shadow-soft">
-        <div className="container mx-auto px-6 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-serif font-bold text-primary">
+        <div className="container mx-auto px-3 sm:px-6 py-3 sm:py-4 flex justify-between items-center">
+          <h1 className="text-lg sm:text-2xl font-serif font-bold text-primary">
             Painel de Administração
           </h1>
-          <Button variant="outline" onClick={handleLogout}>
-            <LogOut className="mr-2 h-4 w-4" />
-            Sair
+          <Button variant="outline" onClick={handleLogout} size="sm" className="text-xs sm:text-sm">
+            <LogOut className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+            <span className="hidden sm:inline">Sair</span>
           </Button>
         </div>
       </header>
 
-      <main className="container mx-auto px-6 py-8">
-        <Tabs defaultValue="reservas" className="space-y-6">
-          <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-4' : 'grid-cols-3'} max-w-4xl`}>
-            <TabsTrigger value="reservas">Reservas</TabsTrigger>
-            <TabsTrigger value="ementa">Ementa</TabsTrigger>
-            <TabsTrigger value="gestao">Gestão do Restaurante</TabsTrigger>
+      <main className="container mx-auto px-3 sm:px-6 py-4 sm:py-8">
+        <Tabs defaultValue="reservas" className="space-y-4 sm:space-y-6">
+          <TabsList className="w-full flex flex-wrap sm:grid sm:grid-cols-3 lg:grid-cols-4 gap-1 sm:gap-2 max-w-4xl">
+            <TabsTrigger value="reservas" className="flex-1 sm:flex-none text-xs sm:text-sm px-2 sm:px-4 py-2">
+              Reservas
+            </TabsTrigger>
+            <TabsTrigger value="ementa" className="flex-1 sm:flex-none text-xs sm:text-sm px-2 sm:px-4 py-2">
+              Ementa
+            </TabsTrigger>
+            <TabsTrigger value="gestao" className="flex-1 sm:flex-none text-xs sm:text-sm px-2 sm:px-4 py-2">
+              <span className="sm:hidden">Gestão</span>
+              <span className="hidden sm:inline">Gestão do Restaurante</span>
+            </TabsTrigger>
             {isAdmin && (
-              <TabsTrigger value="config">Configurações</TabsTrigger>
+              <TabsTrigger value="config" className="flex-1 sm:flex-none text-xs sm:text-sm px-2 sm:px-4 py-2">
+                <span className="sm:hidden">Config</span>
+                <span className="hidden sm:inline">Configurações</span>
+              </TabsTrigger>
             )}
           </TabsList>
 
