@@ -1,0 +1,377 @@
+================================================================================
+                    SISTEMA DE GESTÃO DE RESTAURANTE
+                         DOCUMENTAÇÃO COMPLETA
+================================================================================
+
+Este documento descreve todas as funcionalidades implementadas no sistema de
+gestão de restaurante, incluindo reservas, ementa, comandas e configurações.
+
+================================================================================
+1. SISTEMA DE RESERVAS
+================================================================================
+
+1.1. Criação de Reservas (Cliente)
+   - O cliente pode criar uma reserva através do formulário público
+   - Campos obrigatórios:
+     * Nome e Apelido
+     * Telefone
+     * Email
+     * Data da reserva (pode ser no mesmo dia)
+     * Hora da reserva
+     * Número de pessoas (1 a 20)
+   - O cliente NÃO pode selecionar mesa (apenas o restaurante)
+   - Após criar, a reserva fica com status "Pendente"
+
+1.2. Gestão de Reservas (Restaurante)
+   - Visualização de todas as reservas em abas:
+     * Pendentes
+     * Confirmadas
+     * Canceladas
+     * Finalizadas
+   - Filtros para facilitar a visualização
+
+1.3. Confirmação de Reservas
+   - Ao confirmar uma reserva, o restaurante deve:
+     * Selecionar uma mesa disponível
+     * Adicionar observações (opcional)
+   - Sistema gera automaticamente um token único de confirmação
+   - Email é enviado ao cliente com:
+     * Detalhes da reserva (data, hora, pessoas, mesa)
+     * Observações do restaurante (se houver)
+     * Dois botões de ação:
+       - "Confirmar Reserva" (verde)
+       - "Desistir" (vermelho)
+
+1.4. Edição de Observações
+   - O restaurante pode editar as observações de reservas confirmadas
+   - Ao editar e salvar:
+     * Um novo token é gerado
+     * Um novo email é enviado ao cliente
+     * A confirmação anterior do cliente é resetada
+   - Permite atualizar informações sem perder a reserva
+
+1.5. Confirmação pelo Cliente
+   - Cliente recebe email com link único (token)
+   - Ao clicar em "Confirmar Reserva":
+     * Reserva é marcada como confirmada pelo cliente
+     * Status visual no painel do restaurante
+   - Ao clicar em "Desistir":
+     * Reserva é cancelada automaticamente
+     * Mesa é liberada
+
+1.6. Abertura Automática de Comanda
+   - Quando uma reserva confirmada chega no horário:
+     * Sistema verifica se a mesa está disponível
+     * Abre automaticamente uma comanda para a mesa
+     * Comanda é associada à reserva
+
+1.7. Validação de Mesas para Reservas
+   - Ao confirmar reserva, sistema mostra apenas mesas:
+     * Ativas
+     * Disponíveis no horário
+     * Sem conflitos com outras reservas confirmadas (janela de 2 horas)
+     * Sem comandas ativas
+
+================================================================================
+2. SISTEMA DE EMENTA (MENU)
+================================================================================
+
+2.1. Gestão de Seções
+   - Criar seções para organizar os pratos (ex: "Entradas", "Pratos Principais")
+   - Editar nome das seções
+   - Remover seções (se não houver pratos associados)
+   - Seções são exibidas na ordem criada
+
+2.2. Gestão de Itens do Menu
+   - Adicionar pratos com:
+     * Nome
+     * Descrição
+     * Preço
+     * Seção (opcional - pode ficar em "Outros")
+     * Imagem (URL)
+     * Status (ativo/inativo)
+   - Editar pratos existentes
+   - Remover pratos
+   - Ativar/Desativar pratos (sem remover)
+
+2.3. Organização Visual
+   - Pratos são agrupados por seção
+   - Seção "Outros" para pratos sem seção definida
+   - Interface responsiva para mobile e desktop
+
+================================================================================
+3. SISTEMA DE COMANDAS (PEDIDOS)
+================================================================================
+
+3.1. Criação de Comandas
+   - Duas formas de criar:
+     a) Clicando em uma mesa (mesa pré-selecionada)
+     b) Botão "Nova Comanda" (seleciona mesa manualmente)
+   - Campos obrigatórios:
+     * Nome do cliente
+     * Mesa (obrigatória - comanda sempre associada a mesa)
+   - Seleção de pratos:
+     * Pratos organizados por seções
+     * Checkbox para selecionar múltiplos pratos
+     * Campo de quantidade para cada prato selecionado
+     * Atualização dinâmica da lista conforme ementa
+
+3.2. Gestão de Comandas
+   - Três abas de status:
+     * Abertas: Comandas em andamento
+     * Pendentes: Comandas aguardando finalização/pagamento
+     * Finalizadas: Comandas concluídas (somente visualização)
+
+3.3. Edição de Comandas Abertas
+   - Adicionar mais itens
+   - Remover itens
+   - Editar quantidades
+   - Adicionar observações gerais
+   - Adicionar observações por item
+
+3.4. Finalização de Comandas
+   - Ao clicar em "Finalizar":
+     * Diálogo aparece solicitando:
+       - Forma de pagamento (obrigatório)
+       - Observações gerais (opcional)
+     * Confirmação antes de finalizar
+   - Após finalizar:
+     * Comanda vai para aba "Finalizadas"
+     * Mesa é liberada automaticamente
+     * Comanda fica somente leitura
+
+3.5. Marcar como Pendente
+   - Comandas abertas podem ser marcadas como "Pendentes"
+   - Útil para comandas que já foram pagas mas ainda não finalizadas
+   - Permite reabrir comandas pendentes de volta para "Abertas"
+
+3.6. Cálculo de Totais
+   - Subtotal: Soma de todos os itens (preço × quantidade)
+   - Taxa: 0% (removida conforme solicitação)
+   - Total: Igual ao subtotal
+
+3.7. Validações
+   - Não permite criar comanda para mesa ocupada
+   - Verifica reservas confirmadas antes de abrir comanda
+   - Permite abrir comanda apenas 30 minutos antes até 2 horas depois
+     do horário da reserva confirmada
+
+================================================================================
+4. SISTEMA DE MESAS
+================================================================================
+
+4.1. Cadastro de Mesas
+   - Adicionar mesas com:
+     * Número da mesa
+     * Capacidade (número de pessoas)
+     * Status (ativa/inativa)
+   - Mesas são exibidas em grid visual
+
+4.2. Gestão de Mesas
+   - Visualizar todas as mesas
+   - Editar informações (número, capacidade)
+   - Desabilitar mesa (mantém histórico, mas não aparece para novas comandas)
+   - Remover mesa (apenas se não houver comandas associadas)
+
+4.3. Status Visual das Mesas
+   - Mesa disponível: Pode criar comanda
+   - Mesa ocupada: Tem comanda(s) ativa(s)
+   - Mesa desabilitada: Não aparece na lista
+
+4.4. Ações Rápidas por Mesa
+   - Ao clicar em uma mesa:
+     * Abrir nova comanda
+     * Adicionar itens à comanda existente
+     * Finalizar comanda(s) da mesa
+
+================================================================================
+5. SISTEMA DE EMAIL
+================================================================================
+
+5.1. Confirmação de Recebimento de Reserva
+   - Email automático quando cliente cria reserva
+   - Informa que a reserva foi recebida e está pendente
+
+5.2. Atualização de Status de Reserva
+   - Email enviado quando restaurante altera status:
+     * Confirmado (com mesa e observações)
+     * Cancelado
+     * Finalizado
+   - Inclui todos os detalhes da reserva
+
+5.3. Email de Confirmação com Token
+   - Quando reserva é confirmada pelo restaurante:
+     * Email HTML formatado
+     * Detalhes completos da reserva
+     * Observações do restaurante (se houver)
+     * Dois botões clicáveis:
+       - Confirmar Reserva (link com token)
+       - Desistir (link com token)
+   - Cada edição de observações gera novo token e novo email
+
+5.4. Páginas de Confirmação/Cancelamento
+   - /confirmar-reserva/:token
+     * Valida token
+     * Marca reserva como confirmada pelo cliente
+     * Exibe mensagem de sucesso
+   - /cancelar-reserva/:token
+     * Valida token
+     * Cancela a reserva
+     * Exibe mensagem de cancelamento
+
+================================================================================
+6. INTERFACE E RESPONSIVIDADE
+================================================================================
+
+6.1. Design Responsivo
+   - Layout adaptável para mobile e desktop
+   - Menu de navegação com textos abreviados no mobile
+   - Grids e cards responsivos
+   - Diálogos otimizados para telas pequenas
+
+6.2. Componentes Visuais
+   - Cards para exibir informações
+   - Badges para status
+   - Diálogos modais para ações
+   - Toasts para feedback de ações
+   - Tabs para organização de conteúdo
+
+6.3. Navegação
+   - Menu principal com abas:
+     * Reservas
+     * Ementa
+     * Gestão do Restaurante
+     * Configurações (apenas admin)
+   - Textos completos no desktop
+   - Textos abreviados no mobile
+
+================================================================================
+7. PERSISTÊNCIA DE DADOS
+================================================================================
+
+7.1. LocalStorage
+   - Todos os dados são salvos no navegador:
+     * Reservas
+     * Ementa (pratos e seções)
+     * Comandas
+     * Mesas
+     * Configurações
+   - Dados persistem entre sessões
+   - Eventos customizados para sincronização entre componentes
+
+7.2. Estrutura de Dados
+   - Cada entidade tem:
+     * ID único
+     * Timestamps (created_at, updated_at)
+     * Campos específicos conforme necessidade
+
+================================================================================
+8. VALIDAÇÕES E REGRAS DE NEGÓCIO
+================================================================================
+
+8.1. Reservas
+   - Não permite reservar mesa já ocupada no horário
+   - Verifica disponibilidade considerando janela de 2 horas
+   - Validação de email e telefone
+   - Limite de pessoas (1 a 20)
+
+8.2. Comandas
+   - Mesa obrigatória
+   - Não permite criar comanda para mesa ocupada
+   - Verifica reservas confirmadas antes de abrir
+   - Comandas finalizadas não podem ser editadas
+
+8.3. Mesas
+   - Não permite remover mesa com comandas associadas
+   - Validação de número único
+   - Capacidade mínima de 1 pessoa
+
+8.4. Ementa
+   - Nome de seção único
+   - Preço deve ser positivo
+   - Validação de campos obrigatórios
+
+================================================================================
+9. FUNCIONALIDADES ADMINISTRATIVAS
+================================================================================
+
+9.1. Painel de Administração
+   - Acesso restrito a usuários admin
+   - Visualização de todas as operações
+   - Controle total sobre reservas, comandas e ementa
+
+9.2. Logout
+   - Botão de sair no cabeçalho
+   - Limpa sessão e redireciona para login
+
+================================================================================
+10. FLUXOS PRINCIPAIS
+================================================================================
+
+10.1. Fluxo de Reserva Completo
+   1. Cliente cria reserva → Status: Pendente
+   2. Restaurante confirma → Seleciona mesa, adiciona observações
+   3. Sistema gera token e envia email
+   4. Cliente recebe email e clica em "Confirmar"
+   5. Reserva confirmada pelo cliente
+   6. No horário da reserva, comanda é aberta automaticamente
+
+10.2. Fluxo de Comanda Completo
+   1. Criar comanda (por mesa ou botão)
+   2. Selecionar pratos e quantidades
+   3. Adicionar observações (geral e por item)
+   4. Comanda fica em "Abertas"
+   5. Pode adicionar/remover itens
+   6. Marcar como "Pendente" (se pago)
+   7. Finalizar (com forma de pagamento)
+   8. Comanda vai para "Finalizadas" e mesa é liberada
+
+10.3. Fluxo de Edição de Observações
+   1. Restaurante edita observações de reserva confirmada
+   2. Sistema gera novo token
+   3. Novo email é enviado ao cliente
+   4. Cliente precisa confirmar novamente (token antigo inválido)
+
+================================================================================
+11. TECNOLOGIAS UTILIZADAS
+================================================================================
+
+- Frontend:
+  * React com TypeScript
+  * Vite
+  * Tailwind CSS
+  * shadcn/ui (componentes)
+  * React Router
+  * LocalStorage para persistência
+
+- Backend:
+  * Node.js com Express
+  * Nodemailer (envio de emails)
+  * imap-simple (verificação de emails - removido)
+
+- Funcionalidades:
+  * Sistema de autenticação
+  * Gestão de estado local
+  * Eventos customizados para sincronização
+  * Validações de formulários
+
+================================================================================
+12. OBSERVAÇÕES IMPORTANTES
+================================================================================
+
+- O sistema não possui taxa sobre os pedidos (0%)
+- Reservas podem ser feitas para o mesmo dia
+- Cliente não pode selecionar mesa (apenas restaurante)
+- Cada edição de observações gera novo token
+- Comandas finalizadas são somente leitura
+- Mesas são liberadas automaticamente ao finalizar comanda
+- Sistema verifica disponibilidade de mesas considerando reservas e comandas
+
+================================================================================
+                              FIM DA DOCUMENTAÇÃO
+================================================================================
+
+Data de criação: 2025
+Versão: 1.0
+Sistema: Gestão de Restaurante - ProjetoSimples
+
