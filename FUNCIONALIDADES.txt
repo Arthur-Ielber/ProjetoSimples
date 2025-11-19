@@ -33,24 +33,42 @@ gestão de restaurante, incluindo reservas, ementa, comandas e configurações.
 1.3. Confirmação de Reservas
    - Ao confirmar uma reserva, o restaurante deve:
      * Selecionar uma mesa disponível
-     * Adicionar observações (opcional)
+     * Adicionar resposta ao cliente (opcional - será enviada no email)
    - Sistema gera automaticamente um token único de confirmação
    - Email é enviado ao cliente com:
      * Detalhes da reserva (data, hora, pessoas, mesa)
-     * Observações do restaurante (se houver)
+     * Mensagem do Restaurante (resposta ao cliente - se houver)
      * Dois botões de ação:
        - "Confirmar Reserva" (verde)
        - "Desistir" (vermelho)
+   - Observações do Restaurante NÃO são enviadas no email (apenas uso interno)
 
-1.4. Edição de Observações
-   - O restaurante pode editar as observações de reservas confirmadas
+1.4. Observações do Restaurante (Uso Interno)
+   - Após atualizar status da reserva e enviar email:
+     * Pop-up aparece automaticamente perguntando se deseja adicionar observações
+     * Fluxo em duas etapas:
+       - Primeira: Pergunta "Deseja adicionar observações internas?"
+         * Botão "Não": Fecha pop-up imediatamente
+         * Botão "Sim": Mostra campo de texto
+       - Segunda: Campo para adicionar observações (se clicou em "Sim")
+         * Observações são salvas apenas no sistema
+         * NÃO são enviadas ao cliente
+   - Tela de carregamento durante envio de email:
+     * Aparece imediatamente ao confirmar
+     * Pop-up de observações aparece em no máximo 2 segundos
+     * Feedback visual durante o processo
+   - Observações internas podem ser editadas a qualquer momento
+   - Observações ficam visíveis apenas no painel do restaurante
+
+1.5. Edição de Mensagem ao Cliente
+   - O restaurante pode editar a mensagem/resposta ao cliente de reservas confirmadas
    - Ao editar e salvar:
      * Um novo token é gerado
      * Um novo email é enviado ao cliente
      * A confirmação anterior do cliente é resetada
    - Permite atualizar informações sem perder a reserva
 
-1.5. Confirmação pelo Cliente
+1.6. Confirmação pelo Cliente
    - Cliente recebe email com link único (token)
    - Ao clicar em "Confirmar Reserva":
      * Reserva é marcada como confirmada pelo cliente
@@ -59,13 +77,13 @@ gestão de restaurante, incluindo reservas, ementa, comandas e configurações.
      * Reserva é cancelada automaticamente
      * Mesa é liberada
 
-1.6. Abertura Automática de Comanda
+1.7. Abertura Automática de Comanda
    - Quando uma reserva confirmada chega no horário:
      * Sistema verifica se a mesa está disponível
      * Abre automaticamente uma comanda para a mesa
      * Comanda é associada à reserva
 
-1.7. Validação de Mesas para Reservas
+1.8. Validação de Mesas para Reservas
    - Ao confirmar reserva, sistema mostra apenas mesas:
      * Ativas
      * Disponíveis no horário
@@ -194,20 +212,23 @@ gestão de restaurante, incluindo reservas, ementa, comandas e configurações.
 
 5.2. Atualização de Status de Reserva
    - Email enviado quando restaurante altera status:
-     * Confirmado (com mesa e observações)
+     * Confirmado (com mesa e mensagem ao cliente)
      * Cancelado
      * Finalizado
    - Inclui todos os detalhes da reserva
+   - Observações do Restaurante NÃO são incluídas no email (apenas uso interno)
 
 5.3. Email de Confirmação com Token
    - Quando reserva é confirmada pelo restaurante:
      * Email HTML formatado
-     * Detalhes completos da reserva
-     * Observações do restaurante (se houver)
+     * Detalhes completos da reserva (data, hora, pessoas, mesa)
+     * Mensagem do Restaurante (resposta ao cliente - se houver)
+     * Observações do Restaurante NÃO aparecem no email
      * Dois botões clicáveis:
        - Confirmar Reserva (link com token)
        - Desistir (link com token)
-   - Cada edição de observações gera novo token e novo email
+   - Cada edição de mensagem gera novo token e novo email
+   - Tela de carregamento durante envio (máximo 2 segundos)
 
 5.4. Páginas de Confirmação/Cancelamento
    - /confirmar-reserva/:token
@@ -326,11 +347,22 @@ gestão de restaurante, incluindo reservas, ementa, comandas e configurações.
    7. Finalizar (com forma de pagamento)
    8. Comanda vai para "Finalizadas" e mesa é liberada
 
-10.3. Fluxo de Edição de Observações
-   1. Restaurante edita observações de reserva confirmada
+10.3. Fluxo de Edição de Mensagem ao Cliente
+   1. Restaurante edita mensagem/resposta ao cliente de reserva confirmada
    2. Sistema gera novo token
    3. Novo email é enviado ao cliente
    4. Cliente precisa confirmar novamente (token antigo inválido)
+
+10.4. Fluxo de Observações Internas
+   1. Restaurante atualiza status da reserva
+   2. Tela de carregamento aparece imediatamente
+   3. Email é enviado ao cliente (em background)
+   4. Pop-up de observações aparece em no máximo 2 segundos
+   5. Primeira etapa: Pergunta se deseja adicionar observações
+     * "Não": Fecha pop-up
+     * "Sim": Mostra campo de texto
+   6. Segunda etapa: Adicionar observações (se escolheu "Sim")
+   7. Observações são salvas apenas no sistema (não enviadas ao cliente)
 
 ================================================================================
 11. TECNOLOGIAS UTILIZADAS
@@ -362,10 +394,15 @@ gestão de restaurante, incluindo reservas, ementa, comandas e configurações.
 - O sistema não possui taxa sobre os pedidos (0%)
 - Reservas podem ser feitas para o mesmo dia
 - Cliente não pode selecionar mesa (apenas restaurante)
-- Cada edição de observações gera novo token
+- Cada edição de mensagem ao cliente gera novo token
+- Observações do Restaurante são separadas da mensagem ao cliente:
+  * Observações: Apenas uso interno (não aparecem no email)
+  * Mensagem ao Cliente: Enviada no email junto com status da reserva
 - Comandas finalizadas são somente leitura
 - Mesas são liberadas automaticamente ao finalizar comanda
 - Sistema verifica disponibilidade de mesas considerando reservas e comandas
+- Tela de carregamento durante envio de email (feedback visual)
+- Pop-up de observações aparece em no máximo 2 segundos após confirmar
 
 ================================================================================
                               FIM DA DOCUMENTAÇÃO
