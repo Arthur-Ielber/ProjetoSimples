@@ -32,9 +32,20 @@ export const ReservasTab = () => {
   const [mesaSelecionada, setMesaSelecionada] = useState<string | null>(null);
   const [mesasDisponiveis, setMesasDisponiveis] = useState<Mesa[]>([]);
   const [observacoesRestaurante, setObservacoesRestaurante] = useState<string>("");
+  const [respostaCliente, setRespostaCliente] = useState<string>("");
   const [editarObservacoesDialogOpen, setEditarObservacoesDialogOpen] = useState(false);
   const [reservaParaEditar, setReservaParaEditar] = useState<Reserva | null>(null);
   const [observacoesEditadas, setObservacoesEditadas] = useState<string>("");
+  const [respostaClienteEditada, setRespostaClienteEditada] = useState<string>("");
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [reservaParaAtualizarStatus, setReservaParaAtualizarStatus] = useState<Reserva | null>(null);
+  const [novoEstado, setNovoEstado] = useState<EstadoReserva>("pendente");
+  const [respostaClienteStatus, setRespostaClienteStatus] = useState<string>("");
+  const [observacoesDialogOpen, setObservacoesDialogOpen] = useState(false);
+  const [reservaParaObservacoes, setReservaParaObservacoes] = useState<Reserva | null>(null);
+  const [observacoesInternas, setObservacoesInternas] = useState<string>("");
+  const [mostrarCampoObservacoes, setMostrarCampoObservacoes] = useState(false);
+  const [enviandoEmail, setEnviandoEmail] = useState(false);
 
   useEffect(() => {
     loadReservas();
@@ -156,13 +167,13 @@ export const ReservasTab = () => {
     // Gerar token único para confirmação
     const tokenConfirmacao = crypto.randomUUID();
     
-    // Guardar a observação antes de atualizar
-    const observacoesParaEmail = observacoesRestaurante.trim() || '';
+    // Guardar a resposta antes de atualizar
+    const respostaParaEmail = respostaCliente.trim() || '';
 
     const result = localReservas.update(reservaParaConfirmar.id, { 
       estado: 'confirmado',
       mesaId: mesaSelecionada,
-      observacoesRestaurante: observacoesParaEmail || undefined,
+      respostaCliente: respostaParaEmail || undefined,
       tokenConfirmacao: tokenConfirmacao,
     });
 
@@ -173,27 +184,35 @@ export const ReservasTab = () => {
 
     toast.success("Reserva confirmada com mesa selecionada!");
     setMesaDialogOpen(false);
-    setReservaParaConfirmar(null);
-    setMesaSelecionada(null);
-    setObservacoesRestaurante("");
-    loadReservas();
-
-    // Enviar email ao cliente com token de confirmação
+    
+    // Mostrar loading imediatamente
+    setEnviandoEmail(true);
+    
+    // Preparar dados da reserva antes de enviar email
     const reservaAtualizada = localReservas.getById(reservaParaConfirmar.id);
+    const reservaId = reservaParaConfirmar.id;
+    
+    // Função para abrir o pop-up de observações
+    const abrirPopUpObservacoes = () => {
+      const reservaFinal = localReservas.getById(reservaId);
+      if (reservaFinal) {
+        setReservaParaObservacoes(reservaFinal);
+        setObservacoesInternas(reservaFinal.observacoesRestaurante || "");
+        setMostrarCampoObservacoes(false);
+        setEnviandoEmail(false);
+        setObservacoesDialogOpen(true);
+      } else {
+        setEnviandoEmail(false);
+      }
+    };
+    
+    // Enviar email ao cliente com token de confirmação
     if (reservaAtualizada) {
       try {
         const mesaNumero = mesas.find(m => m.id === reservaAtualizada.mesaId)?.numero || null;
         
-        console.log('[FRONTEND] Enviando email com dados:', {
-          estado: reservaAtualizada.estado,
-          tokenConfirmacao: tokenConfirmacao ? 'presente' : 'ausente',
-          observacoesRestaurante: observacoesParaEmail || reservaAtualizada.observacoesRestaurante || 'ausente',
-          observacoesParaEmail: observacoesParaEmail,
-          observacoesDaReserva: reservaAtualizada.observacoesRestaurante,
-          mesaNumero
-        });
-        
-        const emailResult = await emailService.sendReservationEmail({
+        // Usar Promise.race para garantir que o pop-up apareça em no máximo 2 segundos
+        const emailPromise = emailService.sendReservationEmail({
           email: reservaAtualizada.email,
           nome: reservaAtualizada.nome,
           apelido: reservaAtualizada.apelido,
@@ -202,19 +221,171 @@ export const ReservasTab = () => {
           numero_pessoas: reservaAtualizada.numero_pessoas,
           estado: reservaAtualizada.estado,
           mesaNumero: mesaNumero,
-          observacoesRestaurante: observacoesParaEmail || reservaAtualizada.observacoesRestaurante || undefined,
+          respostaCliente: respostaParaEmail || reservaAtualizada.respostaCliente || undefined,
           tokenConfirmacao: tokenConfirmacao || undefined,
         });
 
-        if (emailResult.success) {
-          toast.success("Email enviado ao cliente com sucesso!");
-        } else {
-          toast.warning(`Email não foi enviado: ${emailResult.error}`);
-        }
+        const timeoutPromise = new Promise<void>((resolve) => {
+          setTimeout(() => resolve(), 2000);
+        });
+
+        // Aguardar o email ou timeout de 2 segundos, o que vier primeiro
+        await Promise.race([emailPromise, timeoutPromise]);
+
+        // Verificar resultado do email (se já completou)
+        emailPromise.then((emailResult) => {
+          if (emailResult.success) {
+            toast.success("Email enviado ao cliente com sucesso!");
+          } else {
+            toast.warning(`Email não foi enviado: ${emailResult.error}`);
+          }
+        }).catch((error) => {
+          console.error('Erro ao enviar email:', error);
+        });
+
+        // Abrir pop-up imediatamente após o timeout ou quando o email completar
+        abrirPopUpObservacoes();
       } catch (error) {
         console.error('Erro ao enviar email:', error);
+        abrirPopUpObservacoes();
+      }
+    } else {
+      setEnviandoEmail(false);
+    }
+
+    setReservaParaConfirmar(null);
+    setMesaSelecionada(null);
+    setRespostaCliente("");
+    loadReservas();
+  };
+
+  const handleConfirmarAtualizacaoStatus = async () => {
+    if (!reservaParaAtualizarStatus) return;
+
+    const result = localReservas.update(reservaParaAtualizarStatus.id, { 
+      estado: novoEstado,
+      respostaCliente: respostaClienteStatus.trim() || undefined,
+    });
+
+    if (!result.success) {
+      toast.error(result.error || "Erro ao atualizar reserva");
+      return;
+    }
+
+    const mensagens: Record<EstadoReserva, string> = {
+      pendente: "Reserva marcada como pendente!",
+      confirmado: "Reserva confirmada!",
+      cancelado: "Reserva cancelada!",
+      finalizado: "Reserva finalizada!",
+    };
+    toast.success(mensagens[novoEstado]);
+
+    // Recarregar reservas para obter dados atualizados
+    loadReservas();
+
+    setStatusDialogOpen(false);
+    
+    // Preparar dados antes de enviar email
+    const reservaId = reservaParaAtualizarStatus.id;
+    
+    // Função para abrir o pop-up de observações
+    const abrirPopUpObservacoes = () => {
+      const reservaAtualizada = localReservas.getById(reservaId);
+      if (reservaAtualizada) {
+        setReservaParaObservacoes(reservaAtualizada);
+        setObservacoesInternas(reservaAtualizada.observacoesRestaurante || "");
+        setMostrarCampoObservacoes(false);
+        setEnviandoEmail(false);
+        setObservacoesDialogOpen(true);
+      } else {
+        setEnviandoEmail(false);
+      }
+    };
+
+    // Enviar email ao cliente (apenas se não for pendente, pois pendente é o estado inicial)
+    if (novoEstado !== 'pendente') {
+      const reservaAtualizada = localReservas.getById(reservaId);
+      if (reservaAtualizada) {
+        // Mostrar loading imediatamente
+        setEnviandoEmail(true);
+        
+        try {
+          const mesaNumero = mesas.find(m => m.id === reservaAtualizada.mesaId)?.numero || null;
+          
+          // Usar Promise.race para garantir que o pop-up apareça em no máximo 2 segundos
+          const emailPromise = emailService.sendReservationEmail({
+            email: reservaAtualizada.email,
+            nome: reservaAtualizada.nome,
+            apelido: reservaAtualizada.apelido,
+            data_reserva: reservaAtualizada.data_reserva,
+            hora_reserva: reservaAtualizada.hora_reserva,
+            numero_pessoas: reservaAtualizada.numero_pessoas,
+            estado: reservaAtualizada.estado,
+            mesaNumero: mesaNumero,
+            respostaCliente: reservaAtualizada.respostaCliente,
+            tokenConfirmacao: reservaAtualizada.tokenConfirmacao,
+          });
+
+          const timeoutPromise = new Promise<void>((resolve) => {
+            setTimeout(() => resolve(), 2000);
+          });
+
+          // Aguardar o email ou timeout de 2 segundos, o que vier primeiro
+          await Promise.race([emailPromise, timeoutPromise]);
+
+          // Verificar resultado do email (se já completou)
+          emailPromise.then((emailResult) => {
+            if (emailResult.success) {
+              toast.success("Email enviado ao cliente com sucesso!");
+            } else {
+              toast.warning(`Status atualizado, mas email não foi enviado: ${emailResult.error}`);
+            }
+          }).catch((error) => {
+            console.error('Erro ao enviar email:', error);
+            toast.warning("Status atualizado, mas houve um erro ao enviar o email.");
+          });
+
+          // Abrir pop-up imediatamente após o timeout ou quando o email completar
+          abrirPopUpObservacoes();
+        } catch (error) {
+          console.error('Erro ao enviar email:', error);
+          toast.warning("Status atualizado, mas houve um erro ao enviar o email.");
+          abrirPopUpObservacoes();
+        }
+      }
+    } else {
+      // Se for pendente, não enviar email, mas ainda perguntar sobre observações
+      const reservaAtualizada = localReservas.getById(reservaId);
+      if (reservaAtualizada) {
+        setReservaParaObservacoes(reservaAtualizada);
+        setObservacoesInternas(reservaAtualizada.observacoesRestaurante || "");
+        setMostrarCampoObservacoes(false);
+        setObservacoesDialogOpen(true);
       }
     }
+    
+    setReservaParaAtualizarStatus(null);
+    setRespostaClienteStatus("");
+  };
+
+  const handleSalvarObservacoesInternas = () => {
+    if (!reservaParaObservacoes) return;
+
+    const result = localReservas.update(reservaParaObservacoes.id, {
+      observacoesRestaurante: observacoesInternas.trim() || undefined,
+    });
+
+    if (!result.success) {
+      toast.error(result.error || "Erro ao salvar observações");
+      return;
+    }
+
+    toast.success("Observações salvas com sucesso!");
+    setObservacoesDialogOpen(false);
+    setMostrarCampoObservacoes(false);
+    setReservaParaObservacoes(null);
+    setObservacoesInternas("");
+    loadReservas();
   };
 
   const updateStatus = async (id: string, estado: EstadoReserva) => {
@@ -239,59 +410,16 @@ export const ReservasTab = () => {
       setMesasDisponiveis(mesasDisponiveisList);
       setReservaParaConfirmar(reserva);
       setMesaSelecionada(reserva.mesaId || null);
-      setObservacoesRestaurante(reserva.observacoesRestaurante || "");
+      setRespostaCliente(reserva.respostaCliente || "");
       setMesaDialogOpen(true);
       return;
     }
 
-    // Para outros estados, atualizar diretamente
-    const result = localReservas.update(id, { estado });
-
-    if (!result.success) {
-      toast.error(result.error || "Erro ao atualizar reserva");
-      return;
-    }
-
-    const mensagens: Record<EstadoReserva, string> = {
-      pendente: "Reserva marcada como pendente!",
-      confirmado: "Reserva confirmada!",
-      cancelado: "Reserva cancelada!",
-      finalizado: "Reserva finalizada!",
-    };
-    toast.success(mensagens[estado]);
-
-    // Recarregar reservas para obter dados atualizados
-    loadReservas();
-
-    // Enviar email ao cliente (apenas se não for pendente, pois pendente é o estado inicial)
-    if (estado !== 'pendente') {
-      const reservaAtualizada = localReservas.getById(id);
-      if (reservaAtualizada) {
-        try {
-          const mesaNumero = mesas.find(m => m.id === reservaAtualizada.mesaId)?.numero || null;
-          
-          const emailResult = await emailService.sendReservationEmail({
-            email: reservaAtualizada.email,
-            nome: reservaAtualizada.nome,
-            apelido: reservaAtualizada.apelido,
-            data_reserva: reservaAtualizada.data_reserva,
-            hora_reserva: reservaAtualizada.hora_reserva,
-            numero_pessoas: reservaAtualizada.numero_pessoas,
-            estado: reservaAtualizada.estado,
-            mesaNumero: mesaNumero,
-          });
-
-          if (emailResult.success) {
-            toast.success("Email enviado ao cliente com sucesso!");
-          } else {
-            toast.warning(`Status atualizado, mas email não foi enviado: ${emailResult.error}`);
-          }
-        } catch (error) {
-          console.error('Erro ao enviar email:', error);
-          toast.warning("Status atualizado, mas houve um erro ao enviar o email.");
-        }
-      }
-    }
+    // Para outros estados, mostrar diálogo para resposta ao cliente
+    setReservaParaAtualizarStatus(reserva);
+    setNovoEstado(estado);
+    setRespostaClienteStatus(reserva.respostaCliente || "");
+    setStatusDialogOpen(true);
   };
 
   const reservasFiltradas =
@@ -398,26 +526,34 @@ export const ReservasTab = () => {
                 </div>
 
                 {reserva.estado === 'confirmado' && (
-                  <div className="mt-4 pt-4 border-t">
-                    <div className="flex items-center justify-between mb-2">
+                <div className="mt-4 pt-4 border-t">
+                  <div className="flex items-center justify-between mb-2">
                       <p className="text-sm font-medium text-muted-foreground">
                         {reserva.observacoesRestaurante ? 'Observações do Restaurante' : 'Adicionar Observações'}
                       </p>
-                      <Button
-                        size="sm"
+                    <Button
+                      size="sm"
                         variant="outline"
                         onClick={() => {
                           setReservaParaEditar(reserva);
                           setObservacoesEditadas(reserva.observacoesRestaurante || "");
+                          setRespostaClienteEditada(reserva.respostaCliente || "");
                           setEditarObservacoesDialogOpen(true);
                         }}
                       >
                         {reserva.observacoesRestaurante ? 'Editar' : 'Adicionar'}
-                      </Button>
-                    </div>
+                    </Button>
+                  </div>
                     {reserva.observacoesRestaurante && (
                       <p className="text-sm whitespace-pre-wrap bg-muted p-3 rounded-lg">{reserva.observacoesRestaurante}</p>
                     )}
+                  </div>
+                )}
+
+                {reserva.respostaCliente && (
+                  <div className="mt-4 pt-4 border-t">
+                    <p className="text-sm font-medium text-muted-foreground mb-2">Resposta ao Cliente</p>
+                    <p className="text-sm whitespace-pre-wrap bg-green-50 dark:bg-green-950/20 p-3 rounded-lg border border-green-200 dark:border-green-800">{reserva.respostaCliente}</p>
                   </div>
                 )}
 
@@ -522,17 +658,20 @@ export const ReservasTab = () => {
             </div>
 
             <div>
-              <Label htmlFor="observacoes-restaurante">Observações do Restaurante (opcional)</Label>
+              <Label htmlFor="resposta-cliente">Resposta ao Cliente (opcional)</Label>
               <Textarea
-                id="observacoes-restaurante"
-                value={observacoesRestaurante}
-                onChange={(e) => setObservacoesRestaurante(e.target.value)}
-                placeholder="Ex: Mesa perto da janela, vista para o mar, área reservada..."
+                id="resposta-cliente"
+                value={respostaCliente}
+                onChange={(e) => setRespostaCliente(e.target.value)}
+                placeholder="Ex: Obrigado por escolher nosso restaurante! Estamos ansiosos para recebê-lo..."
                 rows={3}
                 maxLength={500}
               />
               <p className="text-xs text-muted-foreground mt-1">
-                {observacoesRestaurante.length}/500 caracteres
+                {respostaCliente.length}/500 caracteres
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Esta mensagem será enviada ao cliente junto com o status da reserva.
               </p>
             </div>
 
@@ -543,7 +682,7 @@ export const ReservasTab = () => {
                   setMesaDialogOpen(false);
                   setReservaParaConfirmar(null);
                   setMesaSelecionada(null);
-                  setObservacoesRestaurante("");
+                  setRespostaCliente("");
                 }}
               >
                 Cancelar
@@ -601,6 +740,7 @@ export const ReservasTab = () => {
                   setEditarObservacoesDialogOpen(false);
                   setReservaParaEditar(null);
                   setObservacoesEditadas("");
+                  setRespostaClienteEditada("");
                 }}
               >
                 Cancelar
@@ -615,6 +755,7 @@ export const ReservasTab = () => {
                   // Atualizar reserva com novas observações e novo token
                   const result = localReservas.update(reservaParaEditar.id, {
                     observacoesRestaurante: observacoesEditadas.trim() || undefined,
+                    respostaCliente: respostaClienteEditada.trim() || reservaParaEditar.respostaCliente || undefined,
                     tokenConfirmacao: novoToken,
                     confirmadoPeloCliente: false, // Resetar confirmação do cliente
                   });
@@ -641,7 +782,7 @@ export const ReservasTab = () => {
                         numero_pessoas: reservaAtualizada.numero_pessoas,
                         estado: reservaAtualizada.estado,
                         mesaNumero: mesaNumero,
-                        observacoesRestaurante: reservaAtualizada.observacoesRestaurante,
+                        respostaCliente: reservaAtualizada.respostaCliente,
                         tokenConfirmacao: novoToken,
                       });
 
@@ -659,6 +800,7 @@ export const ReservasTab = () => {
                   setEditarObservacoesDialogOpen(false);
                   setReservaParaEditar(null);
                   setObservacoesEditadas("");
+                  setRespostaClienteEditada("");
                   loadReservas();
                 }}
               >
@@ -668,6 +810,180 @@ export const ReservasTab = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog para atualizar status com resposta ao cliente */}
+      <Dialog open={statusDialogOpen} onOpenChange={setStatusDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Atualizar Status da Reserva</DialogTitle>
+            <DialogDescription>
+              Atualize o status da reserva e adicione uma resposta ao cliente (opcional).
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {reservaParaAtualizarStatus && (
+              <div className="p-3 bg-muted rounded-lg">
+                <p className="text-sm font-medium">{reservaParaAtualizarStatus.nome} {reservaParaAtualizarStatus.apelido}</p>
+                <p className="text-xs text-muted-foreground">
+                  {new Date(reservaParaAtualizarStatus.data_reserva).toLocaleDateString("pt-PT")} às {reservaParaAtualizarStatus.hora_reserva}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Novo status: <strong>{novoEstado.charAt(0).toUpperCase() + novoEstado.slice(1)}</strong>
+                </p>
+              </div>
+            )}
+
+            <div>
+              <Label htmlFor="resposta-cliente-status">Resposta ao Cliente (opcional)</Label>
+              <Textarea
+                id="resposta-cliente-status"
+                value={respostaClienteStatus}
+                onChange={(e) => setRespostaClienteStatus(e.target.value)}
+                placeholder="Ex: Obrigado por escolher nosso restaurante! Estamos ansiosos para recebê-lo..."
+                rows={4}
+                maxLength={500}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                {respostaClienteStatus.length}/500 caracteres
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Esta mensagem será enviada ao cliente junto com o status da reserva.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setStatusDialogOpen(false);
+                  setReservaParaAtualizarStatus(null);
+                  setRespostaClienteStatus("");
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleConfirmarAtualizacaoStatus}
+              >
+                Atualizar Status e Enviar Email
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog para adicionar observações internas do restaurante */}
+      <Dialog open={observacoesDialogOpen} onOpenChange={(open) => {
+        setObservacoesDialogOpen(open);
+        if (!open) {
+          setMostrarCampoObservacoes(false);
+          setReservaParaObservacoes(null);
+          setObservacoesInternas("");
+        }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Observações do Restaurante (Uso Interno)</DialogTitle>
+            <DialogDescription>
+              {mostrarCampoObservacoes 
+                ? "Adicione observações sobre esta reserva. Estas observações ficarão registradas apenas no sistema e não serão enviadas ao cliente."
+                : "Deseja adicionar observações internas sobre esta reserva?"}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {reservaParaObservacoes && (
+              <div className="p-3 bg-muted rounded-lg">
+                <p className="text-sm font-medium">{reservaParaObservacoes.nome} {reservaParaObservacoes.apelido}</p>
+                <p className="text-xs text-muted-foreground">
+                  {new Date(reservaParaObservacoes.data_reserva).toLocaleDateString("pt-PT")} às {reservaParaObservacoes.hora_reserva}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Status: <strong>{reservaParaObservacoes.estado.charAt(0).toUpperCase() + reservaParaObservacoes.estado.slice(1)}</strong>
+                </p>
+              </div>
+            )}
+
+            {mostrarCampoObservacoes ? (
+              <>
+                <div>
+                  <Label htmlFor="observacoes-internas">Observações do Restaurante (opcional)</Label>
+                  <Textarea
+                    id="observacoes-internas"
+                    value={observacoesInternas}
+                    onChange={(e) => setObservacoesInternas(e.target.value)}
+                    placeholder="Ex: Cliente vem em 2, mesa perto da janela, preferência por área silenciosa..."
+                    rows={5}
+                    maxLength={500}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {observacoesInternas.length}/500 caracteres
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1 text-amber-600 dark:text-amber-400">
+                    ⚠️ Estas observações são apenas para uso interno e não serão enviadas ao cliente.
+                  </p>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setObservacoesDialogOpen(false);
+                      setMostrarCampoObservacoes(false);
+                      setReservaParaObservacoes(null);
+                      setObservacoesInternas("");
+                    }}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    onClick={handleSalvarObservacoesInternas}
+                  >
+                    Salvar Observações
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <div className="flex justify-end gap-2 pt-4">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setObservacoesDialogOpen(false);
+                    setMostrarCampoObservacoes(false);
+                    setReservaParaObservacoes(null);
+                    setObservacoesInternas("");
+                  }}
+                >
+                  Não
+                </Button>
+                <Button
+                  onClick={() => {
+                    setMostrarCampoObservacoes(true);
+                  }}
+                >
+                  Sim
+                </Button>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Overlay de carregamento durante envio de email */}
+      {enviandoEmail && (
+        <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center">
+          <div className="bg-background rounded-lg p-6 shadow-lg max-w-sm w-full mx-4">
+            <div className="flex flex-col items-center gap-4">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="text-sm font-medium">Enviando email...</p>
+              <p className="text-xs text-muted-foreground text-center">
+                Aguarde enquanto enviamos o email ao cliente
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

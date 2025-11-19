@@ -585,6 +585,7 @@ export interface Reserva {
   estado: 'pendente' | 'confirmado' | 'cancelado' | 'finalizado';
   observacoes: Observacao[];
   observacoesRestaurante?: string; // Observações do restaurante sobre a reserva
+  respostaCliente?: string; // Resposta/mensagem do restaurante ao cliente
   tokenConfirmacao?: string; // Token para confirmação pelo cliente
   confirmadoPeloCliente?: boolean; // Flag para saber se o cliente confirmou via token
   created_at: string;

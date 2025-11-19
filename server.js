@@ -17,12 +17,12 @@ app.use(express.json());
 let transporter = null;
 if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
   transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
   console.log('[BACKEND] Serviço de email configurado com sucesso');
 } else {
   console.warn('[BACKEND] AVISO: EMAIL_USER e EMAIL_PASS não estão configurados. Funcionalidades de email estarão desabilitadas.');
@@ -41,13 +41,13 @@ function formatarObservacoes(observacoes) {
   const ultimaObservacao = observacoes[observacoes.length - 1];
   
   const data = new Date(ultimaObservacao.created_at).toLocaleString('pt-PT', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-  
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    
   // Usar "Restaurante" ao invés de "Admin" ou "Administrador"
   const autorLabel = ultimaObservacao.autor === 'cliente' 
     ? 'Você' 
@@ -59,15 +59,15 @@ function formatarObservacoes(observacoes) {
   
   let html = '<div style="margin-top: 20px; padding: 15px; background-color: #f5f5f5; border-radius: 5px;">';
   html += '<h3 style="margin-top: 0; color: #333;">Última Mensagem:</h3>';
-  
-  html += `
+    
+    html += `
     <div style="margin-bottom: 15px; padding: 10px; background-color: ${corFundo}; border-left: 3px solid ${ultimaObservacao.autor === 'cliente' ? '#2196F3' : '#FF9800'}; border-radius: 3px;">
-      <div style="font-size: 12px; color: #666; margin-bottom: 5px;">
-        <strong>${autorLabel}</strong> - ${data}
-      </div>
+        <div style="font-size: 12px; color: #666; margin-bottom: 5px;">
+          <strong>${autorLabel}</strong> - ${data}
+        </div>
       <div style="color: #333; white-space: pre-wrap;">${ultimaObservacao.mensagem}</div>
-    </div>
-  `;
+      </div>
+    `;
   
   html += '</div>';
   return html;
@@ -262,6 +262,7 @@ app.post('/api/send-reservation-email', async (req, res) => {
       estado,
       mesaNumero,
       observacoesRestaurante,
+      respostaCliente,
       tokenConfirmacao
     } = req.body;
 
@@ -286,54 +287,28 @@ app.post('/api/send-reservation-email', async (req, res) => {
       email,
       estado,
       tokenConfirmacao: tokenConfirmacao ? 'presente (' + tokenConfirmacao.substring(0, 8) + '...)' : 'ausente',
-      observacoesRestaurante: observacoesRestaurante ? 'presente (' + observacoesRestaurante.substring(0, 50) + '...)' : 'ausente',
+      respostaCliente: respostaCliente ? 'presente (' + respostaCliente.substring(0, 50) + '...)' : 'ausente',
       mesaNumero,
       mostrarBotoes: estado === 'confirmado' && tokenConfirmacao ? 'SIM' : 'NÃO',
       estadoIgualConfirmado: estado === 'confirmado',
       temToken: !!tokenConfirmacao
     });
     
-    // Construir HTML das observações
-    let observacoesHTML = '';
-    // Garantir que observacoesRestaurante seja tratado corretamente
-    const observacoesParaEmail = (observacoesRestaurante && typeof observacoesRestaurante === 'string') 
-      ? observacoesRestaurante.trim() 
-      : '';
-    const deveMostrarObservacoes = observacoesParaEmail.length > 0 || (estado === 'confirmado' && tokenConfirmacao);
-    
-    console.log('[EMAIL DEBUG] Processando observações:', {
-      observacoesRestauranteRecebido: observacoesRestaurante,
-      tipoObservacoes: typeof observacoesRestaurante,
-      observacoesParaEmail,
-      deveMostrarObservacoes
-    });
-    
-    if (deveMostrarObservacoes) {
-      observacoesHTML = `
-            <div class="observacoes-box" style="background-color: #fff3e0; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #FF9800;">
-              <h3 style="margin-top: 0; color: #333; font-size: 16px; font-weight: bold; margin-bottom: 10px;">Observações do Restaurante:</h3>
-              ${observacoesParaEmail ? `
-              <p style="color: #333; margin: 0; white-space: pre-wrap; line-height: 1.6; font-size: 14px;">${observacoesParaEmail}</p>
-              ` : `
-              <p style="color: #666; margin: 0; font-style: italic; font-size: 14px;">Nenhuma observação adicional.</p>
-              `}
-            </div>
-      `;
-    }
+    // Observações do restaurante NÃO são enviadas no email (apenas para uso interno)
+    // Apenas a resposta ao cliente será enviada
 
     // Construir HTML dos botões
     let botoesHTML = '';
     // Verificar se deve mostrar botões - estado deve ser 'confirmado' e deve haver token
     const deveMostrarBotoes = estado === 'confirmado' && tokenConfirmacao && tokenConfirmacao.trim().length > 0;
     
-    console.log('[EMAIL DEBUG] Verificando botões e observações:', {
+    console.log('[EMAIL DEBUG] Verificando botões e resposta ao cliente:', {
       estado,
       tokenConfirmacao: tokenConfirmacao ? tokenConfirmacao.substring(0, 20) + '...' : 'null/undefined',
-      observacoesParaEmail: observacoesParaEmail ? observacoesParaEmail.substring(0, 50) + '...' : 'vazio',
+      respostaCliente: respostaCliente ? respostaCliente.substring(0, 50) + '...' : 'vazio',
       deveMostrarBotoes,
-      deveMostrarObservacoes,
       botoesHTMLLength: botoesHTML.length,
-      observacoesHTMLLength: observacoesHTML.length
+      respostaClienteLength: respostaCliente ? respostaCliente.length : 0
     });
     
     if (deveMostrarBotoes) {
@@ -369,10 +344,16 @@ app.post('/api/send-reservation-email', async (req, res) => {
     // Log do HTML gerado (primeiros 200 caracteres)
     console.log('[EMAIL DEBUG] HTML gerado:', {
       botoesHTMLLength: botoesHTML.length,
-      observacoesHTMLLength: observacoesHTML.length,
+      respostaClienteLength: respostaCliente ? respostaCliente.length : 0,
       botoesHTMLPreview: botoesHTML ? botoesHTML.substring(0, 200) + '...' : 'VAZIO',
-      observacoesHTMLPreview: observacoesHTML ? observacoesHTML.substring(0, 200) + '...' : 'VAZIO'
+      respostaClientePreview: respostaCliente ? respostaCliente.substring(0, 200) + '...' : 'VAZIO',
+      observacoesRestauranteRecebido: observacoesRestaurante ? 'PRESENTE (MAS NÃO SERÁ USADO NO EMAIL)' : 'AUSENTE',
+      confirmacao: 'Observações do Restaurante NÃO aparecem no email - apenas Mensagem do Restaurante'
     });
+    
+    // GARANTIR que observacoesRestaurante NÃO é usado no email
+    // Mesmo que venha no req.body, não será incluído no HTML
+    const observacoesRestauranteParaEmail = null; // SEMPRE null - nunca usado
 
     const mailOptions = {
       from: process.env.EMAIL_USER,
@@ -443,13 +424,6 @@ app.post('/api/send-reservation-email', async (req, res) => {
               background-color: #f44336 !important;
               color: white !important;
             }
-            .observacoes-box {
-              background-color: #fff3e0;
-              padding: 15px;
-              border-radius: 5px;
-              margin: 15px 0;
-              border-left: 4px solid #FF9800;
-            }
             .footer {
               margin-top: 20px;
               padding-top: 20px;
@@ -489,7 +463,15 @@ app.post('/api/send-reservation-email', async (req, res) => {
               ` : ''}
             </div>
             
-            ${observacoesHTML}
+            <!-- IMPORTANTE: Observações do Restaurante NÃO são enviadas no email - apenas para uso interno -->
+            <!-- Apenas a Mensagem do Restaurante (respostaCliente) é enviada ao cliente -->
+            
+            ${respostaCliente ? `
+            <div class="resposta-box" style="background-color: #e8f5e9; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #4CAF50;">
+              <h3 style="margin-top: 0; color: #333; font-size: 16px; font-weight: bold; margin-bottom: 10px;">Mensagem do Restaurante:</h3>
+              <p style="color: #333; margin: 0; white-space: pre-wrap; line-height: 1.6; font-size: 14px;">${respostaCliente}</p>
+            </div>
+            ` : ''}
             
             ${botoesHTML}
             
@@ -616,7 +598,7 @@ function extractTextFromEmail(body) {
   
   // Se ainda contiver palavras suspeitas de headers MIME, descartar
   if (text.match(/Content-Type|Content-Transfer|charset|boundary|--[a-f0-9]+/i)) {
-    return '';
+  return '';
   }
   
   // Limitar tamanho máximo
@@ -707,7 +689,7 @@ async function checkForEmailReplies() {
         
         // Verificar se é uma resposta relacionada a reserva
         const isReservationRelated = subject.toLowerCase().includes('re:') || 
-                                     subject.toLowerCase().includes('reserva') ||
+                       subject.toLowerCase().includes('reserva') ||
                                      subject.toLowerCase().includes('atualização') ||
                                      subject.toLowerCase().includes('confirmação');
 

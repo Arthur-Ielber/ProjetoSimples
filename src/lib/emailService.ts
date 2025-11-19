@@ -10,6 +10,7 @@ export interface EmailReservaData {
   estado: 'pendente' | 'confirmado' | 'cancelado' | 'finalizado';
   mesaNumero?: number | null;
   observacoesRestaurante?: string;
+  respostaCliente?: string;
   tokenConfirmacao?: string;
 }
 
