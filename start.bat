@@ -21,7 +21,15 @@ taskkill /F /IM node.exe >nul 2>&1
 timeout /t 3 /nobreak >nul
 
 echo.
-echo 🚀 Iniciando aplicação...
+echo 🔄 Executando reset do sistema...
+call npm run reset
+
+echo.
+echo 🧪 Testando conexoes...
+call npm run test:connections
+
+echo.
+echo 🚀 Iniciando aplicacao...
 echo.
 
 npm run dev

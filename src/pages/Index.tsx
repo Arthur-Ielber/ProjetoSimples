@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { MenuModal } from "@/components/MenuModal";
 import { ReservaModal } from "@/components/ReservaModal";
-import { localConfig, localMenu } from "@/lib/localStorage";
+import { api } from "@/lib/api";
 import { Phone, Mail, Clock, MapPin, Home, UtensilsCrossed, Calendar, Menu, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -14,6 +14,8 @@ interface Config {
   horario: string;
   historia: string;
   mapa_url: string | null;
+  foto_inicial_url: string | null;
+  foto_historia_url: string | null;
 }
 
 interface PratoDestaque {
@@ -31,6 +33,7 @@ const Index = () => {
   const [config, setConfig] = useState<Config | null>(null);
   const [pratosDestaque, setPratosDestaque] = useState<PratoDestaque[]>([]);
   const [allDestaquesOpen, setAllDestaquesOpen] = useState(false);
+  const [allPratosDestaque, setAllPratosDestaque] = useState<PratoDestaque[]>([]);
   const [totalDestaques, setTotalDestaques] = useState(0);
 
   const scrollToTop = () => {
@@ -41,57 +44,83 @@ const Index = () => {
     loadConfig();
     loadPratosDestaque();
     
-    // Atualizar pratos em destaque quando houver mudanças (outras abas)
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'table_menu_ementa') {
-        loadPratosDestaque();
-      }
-    };
-    
-    // Atualizar pratos em destaque quando houver mudanças (mesma aba)
-    const handleCustomStorageChange = (e: CustomEvent) => {
-      if (e.detail?.key === 'table_menu_ementa') {
-        loadPratosDestaque();
-      }
-    };
-    
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('localStorageChange', handleCustomStorageChange as EventListener);
+    // Atualizar pratos em destaque a cada 30 segundos (para pegar mudanças do banco)
+    const interval = setInterval(() => {
+      loadPratosDestaque();
+    }, 30000);
     
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('localStorageChange', handleCustomStorageChange as EventListener);
+      clearInterval(interval);
     };
   }, []);
 
-  const loadConfig = () => {
-    const data = localConfig.get();
-    setConfig(data);
+  const loadConfig = async () => {
+    try {
+      console.log('[INDEX] Tentando carregar configurações da API...');
+      const result = await api.getConfiguracoes();
+      console.log('[INDEX] Resposta da API:', result);
+      
+      // A API GET retorna o objeto diretamente, não dentro de { data: ... }
+      const configData = result.data || result;
+      
+      if (configData && configData.telefone) {
+        setConfig({
+          telefone: configData.telefone,
+          email: configData.email,
+          horario: configData.horario,
+          historia: configData.historia,
+          mapa_url: configData.mapa_url || null,
+          foto_inicial_url: configData.foto_inicial_url ? `http://localhost:3001${configData.foto_inicial_url}` : null,
+          foto_historia_url: configData.foto_historia_url ? `http://localhost:3001${configData.foto_historia_url}` : null,
+        });
+        console.log('[INDEX] Configurações carregadas com sucesso da API');
+      } else {
+        throw new Error('Resposta da API inválida');
+      }
+    } catch (error: any) {
+      console.error("[INDEX] Erro ao carregar configurações da API:", error);
+      console.error("[INDEX] Mensagem:", error?.message);
+      console.error("[INDEX] Stack:", error?.stack);
+      
+      // Não usar fallback para localStorage - apenas logar o erro
+      console.error("[INDEX] Erro ao carregar configurações da API:", error);
+    }
   };
 
-  const loadPratosDestaque = () => {
-    const items = localMenu.getByDestaque();
-    setTotalDestaques(items.length);
-    // Pegar apenas os 3 primeiros para exibição
-    const pratos = items.slice(0, 3).map(item => ({
-      id: item.id,
-      nome: item.nome,
-      descricao: item.descricao,
-      preco: item.preco,
-      imagem_url: item.imagem_url,
-    }));
-    setPratosDestaque(pratos);
+  const loadPratosDestaque = async () => {
+    try {
+      // Carregar dados apenas do banco de dados (API)
+      const apiData = await api.getEmentaDestaque();
+      
+      // Processar dados da API
+      const processedItems = apiData.map((item: any) => ({
+        id: item.id,
+        nome: item.nome,
+        descricao: item.descricao,
+        preco: typeof item.preco === 'string' ? parseFloat(item.preco) : item.preco,
+        imagem_url: item.imagem_url || item.imagem_blob_url || null,
+      }));
+      
+      setTotalDestaques(processedItems.length);
+      
+      // Pegar apenas os 3 primeiros para exibição
+      const pratos = processedItems.slice(0, 3);
+      setPratosDestaque(pratos);
+      
+      // Todos os pratos em destaque para o modal
+      setAllPratosDestaque(processedItems);
+    } catch (error) {
+      console.error('Erro ao carregar pratos em destaque:', error);
+      setPratosDestaque([]);
+      setAllPratosDestaque([]);
+      setTotalDestaques(0);
+    }
   };
   
-  const getAllPratosDestaque = (): PratoDestaque[] => {
-    const items = localMenu.getByDestaque();
-    return items.map(item => ({
-      id: item.id,
-      nome: item.nome,
-      descricao: item.descricao,
-      preco: item.preco,
-      imagem_url: item.imagem_url,
-    }));
+  const loadAllPratosDestaque = async () => {
+    // Esta função agora é chamada dentro de loadPratosDestaque
+    // Mantida apenas para compatibilidade com o código existente
+    await loadPratosDestaque();
   };
 
   return (
@@ -213,7 +242,9 @@ const Index = () => {
         <div 
           className="absolute inset-0 bg-cover bg-center"
           style={{
-            backgroundImage: "url('https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1600&auto=format&fit=crop')",
+            backgroundImage: config?.foto_inicial_url 
+              ? `url('${config.foto_inicial_url}')`
+              : "url('https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1600&auto=format&fit=crop')",
           }}
         ></div>
         <div className="absolute inset-0 bg-black/50"></div>
@@ -294,11 +325,19 @@ const Index = () => {
             </div>
 
             <div className="rounded-2xl overflow-hidden shadow-elegant h-[600px]">
-              <img
-                src="https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&auto=format&fit=crop"
-                alt="Interior do Restaurante"
-                className="w-full h-full object-cover"
-              />
+              {config?.foto_historia_url ? (
+                <img
+                  src={config.foto_historia_url}
+                  alt="Interior do Restaurante"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <img
+                  src="https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&auto=format&fit=crop"
+                  alt="Interior do Restaurante"
+                  className="w-full h-full object-cover"
+                />
+              )}
             </div>
           </div>
         </div>
@@ -416,7 +455,12 @@ const Index = () => {
       <ReservaModal open={reservaOpen} onOpenChange={setReservaOpen} />
       
       {/* Modal de Todos os Pratos Destaques */}
-      <Dialog open={allDestaquesOpen} onOpenChange={setAllDestaquesOpen}>
+      <Dialog open={allDestaquesOpen} onOpenChange={(open) => {
+        setAllDestaquesOpen(open);
+        if (open) {
+          loadAllPratosDestaque();
+        }
+      }}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-3xl font-serif text-primary">
@@ -424,7 +468,7 @@ const Index = () => {
             </DialogTitle>
           </DialogHeader>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 py-4">
-            {getAllPratosDestaque().map((prato) => (
+            {allPratosDestaque.map((prato) => (
               <div
                 key={prato.id}
                 className="gradient-card rounded-2xl overflow-hidden shadow-soft hover:shadow-elegant transition-all duration-300 hover:-translate-y-2 group"

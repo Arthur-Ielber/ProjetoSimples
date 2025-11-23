@@ -7,11 +7,12 @@ export interface EmailReservaData {
   data_reserva: string;
   hora_reserva: string;
   numero_pessoas: number;
-  estado: 'pendente' | 'confirmado' | 'cancelado' | 'finalizado';
+  estado: 'pendente' | 'aguardando_cliente' | 'confirmado_cliente' | 'cancelado' | 'finalizado';
   mesaNumero?: number | null;
   observacoesRestaurante?: string;
   respostaCliente?: string;
   tokenConfirmacao?: string;
+  tokenCancelamento?: string;
 }
 
 export interface EmailReply {
@@ -32,6 +33,7 @@ export interface EmailConfirmacaoData {
   data_reserva: string;
   hora_reserva: string;
   numero_pessoas: number;
+  tokenConfirmacao?: string;
 }
 
 export const emailService = {
@@ -86,12 +88,19 @@ export const emailService = {
    */
   sendReservationEmail: async (data: EmailReservaData): Promise<{ success: boolean; error?: string }> => {
     try {
+      console.log('[EMAIL SERVICE] 📧 Iniciando envio de email...');
+      console.log('[EMAIL SERVICE] URL da API:', `${API_URL}/api/send-reservation-email`);
       console.log('[EMAIL SERVICE] Enviando email com dados:', {
         email: data.email,
         estado: data.estado,
-        tokenConfirmacao: data.tokenConfirmacao ? 'presente' : 'ausente',
+        tokenConfirmacao: data.tokenConfirmacao ? `presente (${typeof data.tokenConfirmacao === 'string' ? data.tokenConfirmacao.substring(0, 20) + '...' : String(data.tokenConfirmacao).substring(0, 20) + '...'})` : 'AUSENTE',
+        tokenConfirmacaoType: typeof data.tokenConfirmacao,
+        tokenConfirmacaoValue: data.tokenConfirmacao,
         observacoesRestaurante: data.observacoesRestaurante ? 'presente' : 'ausente',
-        mesaNumero: data.mesaNumero
+        mesaNumero: data.mesaNumero,
+        deveMostrarBotoes: data.estado === 'aguardando_cliente' && data.tokenConfirmacao ? 'SIM' : 'NÃO',
+        estadoIgualConfirmado: data.estado === 'aguardando_cliente',
+        temToken: !!data.tokenConfirmacao
       });
 
       const response = await fetch(`${API_URL}/api/send-reservation-email`, {
@@ -102,14 +111,34 @@ export const emailService = {
         body: JSON.stringify(data),
       });
 
+      console.log('[EMAIL SERVICE] Resposta recebida:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries())
+      });
+
+      // Verificar se a resposta é JSON antes de fazer parse
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('[EMAIL SERVICE] Resposta não é JSON:', text.substring(0, 200));
+        return { 
+          success: false, 
+          error: `Servidor retornou erro ${response.status}. Verifique se o servidor está rodando na porta 3001.` 
+        };
+      }
+
       const result = await response.json();
+      console.log('[EMAIL SERVICE] Resultado parseado:', result);
 
       if (!response.ok) {
-        console.error('[EMAIL SERVICE] Erro na resposta:', result);
+        console.error('[EMAIL SERVICE] ❌ Erro na resposta do servidor:', result);
+        console.error('[EMAIL SERVICE] Status:', response.status, response.statusText);
         return { success: false, error: result.error || 'Erro ao enviar email' };
       }
 
-      console.log('[EMAIL SERVICE] Email enviado com sucesso');
+      console.log('[EMAIL SERVICE] ✅ Email enviado com sucesso!', result);
       return { success: true };
     } catch (error) {
       console.error('[EMAIL SERVICE] Erro ao enviar email:', error);

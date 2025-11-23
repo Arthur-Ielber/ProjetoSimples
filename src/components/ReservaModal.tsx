@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { localReservas } from "@/lib/localStorage";
+// Removido import de localReservas - reservas vêm apenas do banco de dados
+import { api } from "@/lib/api";
 import { emailService } from "@/lib/emailService";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -45,51 +46,35 @@ export const ReservaModal = ({ open, onOpenChange }: ReservaModalProps) => {
     try {
       const validated = reservaSchema.parse(formData);
 
-      const result = localReservas.create(
-        {
-          nome: validated.nome,
-          apelido: validated.apelido,
-          telefone: validated.telefone,
-          email: validated.email,
-          data_reserva: validated.data_reserva,
-          hora_reserva: validated.hora_reserva,
-          numero_pessoas: validated.numero_pessoas,
-          mesaId: null, // Cliente não pode selecionar mesa - apenas o restaurante
-        },
-        formData.observacoes.trim() || undefined
-      );
+      // Salvar no banco de dados via API
+      const result = await api.createReserva({
+        nome: validated.nome,
+        apelido: validated.apelido,
+        telefone: validated.telefone,
+        email: validated.email,
+        data_reserva: validated.data_reserva,
+        hora_reserva: validated.hora_reserva,
+        numero_pessoas: validated.numero_pessoas,
+        mesa_id: null, // Cliente não pode selecionar mesa - apenas o restaurante
+        estado: 'pendente',
+        observacoes: formData.observacoes.trim() || undefined,
+      });
 
       if (!result.success) {
         throw new Error(result.error || "Erro ao criar reserva");
       }
 
-      // Enviar email de confirmação de recebimento
-      try {
-        console.log('Enviando email de confirmação para:', validated.email);
-        const emailResult = await emailService.sendReservationConfirmation({
-          email: validated.email,
-          nome: validated.nome,
-          apelido: validated.apelido,
-          data_reserva: validated.data_reserva,
-          hora_reserva: validated.hora_reserva,
-          numero_pessoas: validated.numero_pessoas,
-        });
-
-        if (emailResult.success) {
-          console.log('Email de confirmação enviado com sucesso');
-        } else {
-          console.error('Erro ao enviar email de confirmação:', emailResult.error);
-          toast.warning("Reserva criada, mas não foi possível enviar o email de confirmação.");
-        }
-      } catch (error) {
-        console.error('Erro ao enviar email de confirmação:', error);
-        toast.warning("Reserva criada, mas houve um erro ao enviar o email de confirmação.");
-        // Não bloquear a criação da reserva se o email falhar
-      }
+      // NÃO enviar email na criação - o email será enviado apenas quando o restaurante confirmar a reserva
+      console.log('[RESERVA MODAL] Reserva criada com sucesso. Aguardando confirmação do restaurante para enviar email.');
 
       toast.success("Pedido de reserva enviado com sucesso!", {
-        description: "Receberá um email de confirmação em breve.",
+        description: "O restaurante irá analisar sua solicitação e você receberá um email quando a reserva for confirmada.",
       });
+
+      // Disparar evento para recarregar reservas no dashboard
+      window.dispatchEvent(new CustomEvent('reservaCriada', {
+        detail: { reservaId: result.data?.id }
+      }));
 
       onOpenChange(false);
       setFormData({

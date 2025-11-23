@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { localConfig, Config as LocalConfig } from "@/lib/localStorage";
 import { localAuth, User } from "@/lib/localAuth";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, Power, PowerOff, UtensilsCrossed, Calendar, Info } from "lucide-react";
+import { Loader2, Plus, Trash2, Power, PowerOff, UtensilsCrossed, Calendar, Info, Upload, X, Image as ImageIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
@@ -30,19 +31,44 @@ export const ConfigTab = () => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newAtualizador, setNewAtualizador] = useState({ email: "", password: "" });
   const [deleteDialog, setDeleteDialog] = useState<string | null>(null);
+  
+  // Estados para upload de fotos
+  const [fotoInicialFile, setFotoInicialFile] = useState<File | null>(null);
+  const [fotoInicialPreview, setFotoInicialPreview] = useState<string | null>(null);
+  const [fotoHistoriaFile, setFotoHistoriaFile] = useState<File | null>(null);
+  const [fotoHistoriaPreview, setFotoHistoriaPreview] = useState<string | null>(null);
+  const [fotoInicialOriginal, setFotoInicialOriginal] = useState(false);
+  const [fotoHistoriaOriginal, setFotoHistoriaOriginal] = useState(false);
 
   useEffect(() => {
     loadConfig();
     loadAtualizadores();
   }, []);
 
-  const loadAtualizadores = () => {
+  const loadAtualizadores = async () => {
     if (localAuth.isAdmin()) {
-      setAtualizadores(localAuth.getAtualizadores());
+      try {
+        const usuarios = await api.getUsuarios();
+        // Filtrar apenas atualizadores (role = 'atualizador')
+        const atualizadoresData = usuarios
+          .filter((u: any) => u.role === 'atualizador')
+          .map((u: any) => ({
+            id: u.id,
+            email: u.email,
+            role: u.role,
+            active: u.active,
+            createdAt: u.created_at
+          }));
+        setAtualizadores(atualizadoresData);
+      } catch (error) {
+        console.error('Erro ao carregar atualizadores:', error);
+        // Fallback para localStorage
+        setAtualizadores(localAuth.getAtualizadores());
+      }
     }
   };
 
-  const handleAddAtualizador = () => {
+  const handleAddAtualizador = async () => {
     // Validação de senha
     if (newAtualizador.password.length < 6) {
       toast.error("A senha deve ter pelo menos 6 caracteres");
@@ -56,50 +82,75 @@ export const ConfigTab = () => {
       return;
     }
 
-    const result = localAuth.createAtualizador(newAtualizador.email, newAtualizador.password);
-    if (result.success) {
-      toast.success(result.message);
+    try {
+      const result = await api.createUsuario({
+        email: newAtualizador.email,
+        password: newAtualizador.password,
+        role: 'atualizador'
+      });
+      toast.success(result.message || "Usuário criado com sucesso!");
       setNewAtualizador({ email: "", password: "" });
       setShowAddForm(false);
       loadAtualizadores();
-    } else {
-      toast.error(result.message);
+    } catch (error: any) {
+      toast.error(error.message || "Erro ao criar usuário");
     }
   };
 
-  const handleToggleAtualizador = (id: string) => {
-    const result = localAuth.toggleAtualizador(id);
-    if (result.success) {
-      toast.success(result.message);
+  const handleToggleAtualizador = async (id: string) => {
+    try {
+      const result = await api.toggleUsuario(id);
+      toast.success(result.message || "Usuário atualizado com sucesso!");
       loadAtualizadores();
-    } else {
-      toast.error(result.message);
+    } catch (error: any) {
+      toast.error(error.message || "Erro ao atualizar usuário");
     }
   };
 
-  const handleDeleteAtualizador = () => {
+  const handleDeleteAtualizador = async () => {
     if (deleteDialog) {
-      const result = localAuth.deleteAtualizador(deleteDialog);
-      if (result.success) {
-        toast.success(result.message);
+      try {
+        await api.deleteUsuario(deleteDialog);
+        toast.success("Usuário deletado com sucesso!");
         loadAtualizadores();
-      } else {
-        toast.error(result.message);
+      } catch (error: any) {
+        toast.error(error.message || "Erro ao deletar usuário");
       }
       setDeleteDialog(null);
     }
   };
 
-  const loadConfig = () => {
+  const loadConfig = async () => {
     setLoading(true);
     try {
-      // localConfig.get() sempre retorna um config (cria padrão se não existir)
-      const data = localConfig.get();
-      setConfig(data);
+      const data = await api.getConfiguracoes();
+      setConfig({
+        id: data.id,
+        telefone: data.telefone,
+        email: data.email,
+        horario: data.horario,
+        historia: data.historia,
+        mapa_url: data.mapa_url || null,
+      });
+      
+      // Carregar previews das fotos se existirem
+      const temFotoInicial = data.tem_foto_inicial === 1;
+      const temFotoHistoria = data.tem_foto_historia === 1;
+      
+      if (temFotoInicial && data.foto_inicial_url) {
+        setFotoInicialPreview(`http://localhost:3001${data.foto_inicial_url}`);
+      }
+      if (temFotoHistoria && data.foto_historia_url) {
+        setFotoHistoriaPreview(`http://localhost:3001${data.foto_historia_url}`);
+      }
+      
+      // Guardar estado inicial para detectar remoções
+      setFotoInicialOriginal(temFotoInicial);
+      setFotoHistoriaOriginal(temFotoHistoria);
     } catch (error) {
       console.error('Erro ao carregar configurações:', error);
       toast.error('Erro ao carregar configurações');
-      // Tentar criar config padrão mesmo em caso de erro
+      // Fallback para localStorage
       try {
         const defaultConfig = localConfig.get();
         setConfig(defaultConfig);
@@ -111,28 +162,133 @@ export const ConfigTab = () => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleFotoInicialUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error("Por favor, selecione um ficheiro de imagem válido");
+      return;
+    }
+
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error("A imagem deve ter no máximo 15MB");
+      return;
+    }
+
+    setFotoInicialFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setFotoInicialPreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleFotoHistoriaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error("Por favor, selecione um ficheiro de imagem válido");
+      return;
+    }
+
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error("A imagem deve ter no máximo 15MB");
+      return;
+    }
+
+    setFotoHistoriaFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setFotoHistoriaPreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveFotoInicial = () => {
+    setFotoInicialFile(null);
+    setFotoInicialPreview(null);
+  };
+
+  const handleRemoveFotoHistoria = () => {
+    setFotoHistoriaFile(null);
+    setFotoHistoriaPreview(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!config) return;
 
     setSaving(true);
-    const result = localConfig.update({
-      telefone: config.telefone,
-      email: config.email,
-      horario: config.horario,
-      historia: config.historia,
-      mapa_url: config.mapa_url,
-    });
+    try {
+      // Fazer upload das fotos se houver arquivos novos
+      let fotoInicialBlob: string | null | undefined = undefined;
+      let fotoHistoriaBlob: string | null | undefined = undefined;
 
-    if (!result.success) {
-      toast.error(result.error || "Erro ao atualizar configurações");
-    } else {
+      if (fotoInicialFile) {
+        // Nova foto selecionada
+        const uploadResult = await api.uploadEmentaImage(fotoInicialFile);
+        fotoInicialBlob = uploadResult.blob;
+      } else if (fotoInicialPreview === null && fotoInicialOriginal) {
+        // Foto foi removida (tinha antes, agora não tem)
+        fotoInicialBlob = null;
+      }
+
+      if (fotoHistoriaFile) {
+        // Nova foto selecionada
+        const uploadResult = await api.uploadEmentaImage(fotoHistoriaFile);
+        fotoHistoriaBlob = uploadResult.blob;
+      } else if (fotoHistoriaPreview === null && fotoHistoriaOriginal) {
+        // Foto foi removida (tinha antes, agora não tem)
+        fotoHistoriaBlob = null;
+      }
+
+      const updateData: any = {
+        telefone: config.telefone,
+        email: config.email,
+        horario: config.horario,
+        historia: config.historia,
+        mapa_url: config.mapa_url,
+      };
+
+      // Incluir fotos apenas se foram modificadas
+      if (fotoInicialBlob !== undefined) {
+        updateData.foto_inicial = fotoInicialBlob;
+      }
+      if (fotoHistoriaBlob !== undefined) {
+        updateData.foto_historia = fotoHistoriaBlob;
+      }
+
+      const result = await api.updateConfiguracoes(updateData);
       toast.success("Configurações atualizadas com sucesso!");
       if (result.data) {
-        setConfig(result.data);
+        setConfig({
+          id: result.data.id,
+          telefone: result.data.telefone,
+          email: result.data.email,
+          horario: result.data.horario,
+          historia: result.data.historia,
+          mapa_url: result.data.mapa_url || null,
+        });
+        
+        // Atualizar previews
+        if (result.data.foto_inicial_url) {
+          setFotoInicialPreview(`http://localhost:3001${result.data.foto_inicial_url}`);
+        }
+        if (result.data.foto_historia_url) {
+          setFotoHistoriaPreview(`http://localhost:3001${result.data.foto_historia_url}`);
+        }
+        
+        // Limpar arquivos temporários
+        setFotoInicialFile(null);
+        setFotoHistoriaFile(null);
       }
+    } catch (error: any) {
+      toast.error(error.message || "Erro ao atualizar configurações");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   if (loading) {
@@ -229,8 +385,149 @@ export const ConfigTab = () => {
             />
           </div>
 
+          <div className="space-y-4 pt-4 border-t">
+            <div>
+              <Label htmlFor="foto_inicial">Foto Inicial do Site</Label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Imagem que aparece na página inicial (máximo 15MB)
+              </p>
+              {fotoInicialPreview ? (
+                <div className="space-y-2">
+                  <div className="relative">
+                    <img 
+                      src={fotoInicialPreview} 
+                      alt="Foto inicial" 
+                      className="w-full h-48 object-cover rounded-lg border"
+                    />
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleRemoveFotoInicial}
+                      className="absolute top-2 right-2"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <Input
+                    id="foto_inicial"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFotoInicialUpload}
+                    className="hidden"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => document.getElementById('foto_inicial')?.click()}
+                    className="w-full"
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Trocar Foto
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Input
+                    id="foto_inicial"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFotoInicialUpload}
+                    className="hidden"
+                  />
+                  <div 
+                    className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary/50 transition-colors cursor-pointer"
+                    onClick={() => document.getElementById('foto_inicial')?.click()}
+                  >
+                    <ImageIcon className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-sm font-medium text-foreground mb-1">
+                      Clique para selecionar uma imagem
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Formatos: JPG, PNG, GIF | Máximo 15MB
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <Label htmlFor="foto_historia">Foto da História</Label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Imagem que aparece na seção "Nossa História" (máximo 15MB)
+              </p>
+              {fotoHistoriaPreview ? (
+                <div className="space-y-2">
+                  <div className="relative">
+                    <img 
+                      src={fotoHistoriaPreview} 
+                      alt="Foto história" 
+                      className="w-full h-48 object-cover rounded-lg border"
+                    />
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleRemoveFotoHistoria}
+                      className="absolute top-2 right-2"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <Input
+                    id="foto_historia"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFotoHistoriaUpload}
+                    className="hidden"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => document.getElementById('foto_historia')?.click()}
+                    className="w-full"
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Trocar Foto
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Input
+                    id="foto_historia"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFotoHistoriaUpload}
+                    className="hidden"
+                  />
+                  <div 
+                    className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary/50 transition-colors cursor-pointer"
+                    onClick={() => document.getElementById('foto_historia')?.click()}
+                  >
+                    <ImageIcon className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-sm font-medium text-foreground mb-1">
+                      Clique para selecionar uma imagem
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Formatos: JPG, PNG, GIF | Máximo 15MB
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
           <Button type="submit" disabled={saving}>
-            {saving ? "A guardar..." : "Guardar Alterações"}
+            {saving ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                A guardar...
+              </>
+            ) : (
+              "Guardar Alterações"
+            )}
           </Button>
         </form>
       </CardContent>
@@ -345,7 +642,7 @@ export const ConfigTab = () => {
                       </Badge>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <span>Criado em: {new Date(atualizador.createdAt).toLocaleDateString("pt-PT")}</span>
+                      <span>Criado em: {new Date(atualizador.createdAt || atualizador.created_at).toLocaleDateString("pt-PT")}</span>
                       <span className="flex items-center gap-1">
                         <UtensilsCrossed className="h-3 w-3" />
                         Ementa

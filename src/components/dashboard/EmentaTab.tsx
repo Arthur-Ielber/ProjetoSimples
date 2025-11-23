@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { localMenu, localSections, MenuItem as LocalMenuItem, MenuSection } from "@/lib/localStorage";
+import { MenuItem as LocalMenuItem, MenuSection } from "@/lib/localStorage";
 import { localAuth } from "@/lib/localAuth";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,87 +36,100 @@ export const EmentaTab = () => {
   });
   const [imageSource, setImageSource] = useState<"url" | "upload">("url");
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     // Carregar seções primeiro, depois os itens
     loadSections();
     loadItems();
     
-    // Listener para atualizar quando houver mudanças no localStorage (outras abas)
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'table_menu_ementa') {
-        loadItems();
-      } else if (e.key === 'table_menu_secoes') {
-        loadSections();
-        loadItems(); // Recarregar itens quando seções mudarem para atualizar ordenação
-      }
-    };
-    
-    // Listener para atualizar quando houver mudanças na mesma aba
-    const handleCustomStorageChange = (e: CustomEvent) => {
-      if (e.detail?.key === 'table_menu_ementa') {
-        loadItems();
-      } else if (e.detail?.key === 'table_menu_secoes') {
-        loadSections();
-        loadItems(); // Recarregar itens quando seções mudarem para atualizar ordenação
-      }
-    };
-    
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('localStorageChange', handleCustomStorageChange as EventListener);
+    // Atualizar dados a cada 30 segundos
+    const interval = setInterval(() => {
+      loadSections();
+      loadItems();
+    }, 30000);
     
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('localStorageChange', handleCustomStorageChange as EventListener);
+      clearInterval(interval);
     };
   }, []);
 
-  const loadItems = () => {
+  const loadItems = async () => {
     setLoading(true);
-    const data = localMenu.getAll();
-    // Ordenar por ordem da seção e depois por nome (criar cópia para não modificar o original)
-    const sectionsMap = new Map(sections.map(s => [s.nome, s.ordem]));
-    const sorted = [...data].sort((a, b) => {
-      const ordemA = sectionsMap.get(a.secao) ?? 999;
-      const ordemB = sectionsMap.get(b.secao) ?? 999;
-      if (ordemA !== ordemB) {
-        return ordemA - ordemB;
-      }
-      return a.nome.localeCompare(b.nome);
-    });
-    setItems(sorted);
-    setLoading(false);
+    try {
+      // Carregar dados apenas do banco de dados (API)
+      const apiData = await api.getEmenta();
+      
+      // Processar dados da API
+      const processedItems = apiData.map((item: any) => ({
+        ...item,
+        preco: typeof item.preco === 'string' ? parseFloat(item.preco) : item.preco,
+      }));
+      
+      // Ordenar por ordem da seção e depois por nome
+      const sectionsMap = new Map(sections.map(s => [s.nome, s.ordem || 0]));
+      const sorted = [...processedItems].sort((a, b) => {
+        const ordemA = sectionsMap.get(a.secao) ?? 999;
+        const ordemB = sectionsMap.get(b.secao) ?? 999;
+        if (ordemA !== ordemB) {
+          return ordemA - ordemB;
+        }
+        return a.nome.localeCompare(b.nome);
+      });
+      setItems(sorted);
+    } catch (error) {
+      console.error('Erro ao carregar itens:', error);
+      toast.error('Erro ao carregar itens do menu');
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const loadSections = () => {
-    const data = localSections.getAll();
-    // Ordenar por ordem
-    const sorted = [...data].sort((a, b) => a.ordem - b.ordem);
-    setSections(sorted);
-    
-    // Se não houver seção selecionada no formData, usar a primeira seção disponível
-    if (!formData.secao && sorted.length > 0) {
-      setFormData(prev => ({ ...prev, secao: sorted[0].nome }));
+  const loadSections = async () => {
+    try {
+      // Carregar dados apenas do banco de dados (API)
+      const apiData = await api.getMenuSecoes();
+      
+      // Processar e ordenar seções
+      const processedSections = apiData.map((section: any) => ({
+        ...section,
+        ordem: section.ordem || 0,
+      }));
+      
+      // Ordenar por ordem
+      const sorted = [...processedSections].sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
+      setSections(sorted);
+      
+      // Se não houver seção selecionada no formData, usar a primeira seção disponível
+      if (!formData.secao && sorted.length > 0) {
+        setFormData(prev => ({ ...prev, secao: sorted[0].nome }));
+      }
+    } catch (error) {
+      console.error('Erro ao carregar seções:', error);
+      toast.error('Erro ao carregar seções');
+      setSections([]);
     }
   };
 
   const handleOpenDialog = (item?: MenuItem) => {
     if (item) {
       setEditingItem(item);
-      const hasImage = !!item.imagem_url;
-      const isDataUrl = hasImage && item.imagem_url?.startsWith('data:');
-      setImageSource(isDataUrl ? "upload" : "url");
+      // Sempre usar URL agora (não mais base64)
+      setImageSource("url");
       setFormData({
         nome: item.nome,
         descricao: item.descricao || "",
         preco: item.preco.toString(),
         secao: item.secao,
         destaque: item.destaque,
-        imagem_url: isDataUrl ? "" : (item.imagem_url || ""),
+        imagem_url: item.imagem_url || "",
       });
-      setUploadedImage(isDataUrl ? item.imagem_url : null);
-      setPreviewImage(item.imagem_url);
+      setUploadedImage(null);
+      setUploadedFile(null);
+      setPreviewImage(item.imagem_url || null);
     } else {
       setEditingItem(null);
       const firstSection = sections.length > 0 ? sections[0].nome : "";
@@ -129,6 +143,7 @@ export const EmentaTab = () => {
       });
       setImageSource("url");
       setUploadedImage(null);
+      setUploadedFile(null);
       setPreviewImage(null);
     }
     setDialogOpen(true);
@@ -150,11 +165,14 @@ export const EmentaTab = () => {
       return;
     }
 
+    // Guardar o arquivo para upload posterior
+    setUploadedFile(file);
+    
+    // Criar preview usando FileReader
     const reader = new FileReader();
     reader.onloadend = () => {
-      const base64String = reader.result as string;
-      setUploadedImage(base64String);
-      setPreviewImage(base64String);
+      const previewUrl = reader.result as string;
+      setPreviewImage(previewUrl);
       setFormData({ ...formData, imagem_url: "" }); // Limpar URL se houver
     };
     reader.onerror = () => {
@@ -165,11 +183,12 @@ export const EmentaTab = () => {
 
   const handleRemoveImage = () => {
     setUploadedImage(null);
+    setUploadedFile(null);
     setPreviewImage(null);
     setFormData({ ...formData, imagem_url: "" });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Validar preço
@@ -185,44 +204,52 @@ export const EmentaTab = () => {
       return;
     }
 
-    // Usar imagem carregada se houver, senão usar URL
-    const finalImageUrl = imageSource === "upload" && uploadedImage 
-      ? uploadedImage 
-      : (formData.imagem_url.trim() || null);
+    setUploading(true);
+    let finalImageUrl: string | null = null;
+    let imagemBlob: string | null = null;
 
-    const data = {
-      nome: formData.nome.trim(),
-      descricao: formData.descricao.trim() || null,
-      preco: preco,
-      secao: formData.secao,
-      destaque: formData.destaque,
-      imagem_url: finalImageUrl,
-    };
+    try {
+      // Se houver arquivo para upload, fazer upload e obter base64
+      if (imageSource === "upload" && uploadedFile) {
+        const uploadResult = await api.uploadEmentaImage(uploadedFile);
+        // O servidor retorna o blob em base64
+        imagemBlob = uploadResult.blob;
+        // Não usar URL quando temos BLOB
+        finalImageUrl = null;
+      } else if (imageSource === "url" && formData.imagem_url.trim()) {
+        finalImageUrl = formData.imagem_url.trim();
+        imagemBlob = null;
+      }
 
-    if (editingItem) {
-      const result = localMenu.update(editingItem.id, data);
+      // Salvar no banco de dados (API)
+      const data = {
+        nome: formData.nome.trim(),
+        descricao: formData.descricao.trim() || null,
+        preco: preco,
+        secao: formData.secao,
+        destaque: formData.destaque,
+        imagem_url: finalImageUrl,
+        imagem_blob: imagemBlob, // Enviar BLOB em base64
+      };
 
-      if (!result.success) {
-        toast.error(result.error || "Erro ao atualizar item");
-      } else {
+      if (editingItem) {
+        await api.updateEmenta(editingItem.id, data);
         toast.success("Item atualizado com sucesso!");
-        setDialogOpen(false);
-        loadItems();
-      }
-    } else {
-      const result = localMenu.create(data);
-
-      if (!result.success) {
-        toast.error(result.error || "Erro ao adicionar item");
       } else {
+        await api.createEmenta(data);
         toast.success("Item adicionado com sucesso!");
-        setDialogOpen(false);
-        loadItems();
       }
+
+      setDialogOpen(false);
+      await loadItems();
+    } catch (error: any) {
+      toast.error(error.message || "Erro ao salvar item");
+    } finally {
+      setUploading(false);
     }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     // Apenas o admin principal pode excluir pratos
     if (!localAuth.isMainAdmin()) {
       toast.error("Apenas o administrador principal pode excluir pratos");
@@ -231,32 +258,31 @@ export const EmentaTab = () => {
 
     if (!confirm("Tem certeza que deseja remover este item?")) return;
 
-    const result = localMenu.delete(id);
-
-    if (!result.success) {
-      toast.error(result.error || "Erro ao remover item");
-    } else {
+    try {
+      // Deletar via API (todos os itens estão no banco de dados)
+      await api.deleteEmenta(id);
       toast.success("Item removido com sucesso!");
-      loadItems();
+      await loadItems();
+    } catch (error: any) {
+      toast.error(error.message || "Erro ao remover item");
     }
   };
 
-  const handleToggleAtivo = (id: string) => {
-    // Permitir que admin e atualizadores ativem/desativem pratos
+  const handleToggleAtivo = async (id: string) => {
+    // Permitir que admin e atualizadores ativem/desativar pratos
     const user = localAuth.getCurrentUser();
     if (!user || (user.role !== 'admin' && user.role !== 'atualizador')) {
       toast.error("Acesso negado. Apenas administradores e atualizadores podem ativar/desativar pratos.");
       return;
     }
 
-    const result = localMenu.toggleAtivo(id);
-
-    if (!result.success) {
-      toast.error(result.error || "Erro ao ativar/desativar item");
-    } else {
-      const item = result.data;
-      toast.success(`Item ${item?.ativo ? 'ativado' : 'desativado'} com sucesso!`);
-      loadItems();
+    try {
+      // Atualizar via API (todos os itens estão no banco de dados)
+      await api.toggleEmentaAtivo(id);
+      toast.success("Status do item alterado com sucesso!");
+      await loadItems();
+    } catch (error: any) {
+      toast.error(error.message || "Erro ao alterar status do item");
     }
   };
 
@@ -271,7 +297,7 @@ export const EmentaTab = () => {
     setSectionDialogOpen(true);
   };
 
-  const handleSectionSubmit = (e: React.FormEvent) => {
+  const handleSectionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!sectionFormData.nome.trim()) {
@@ -279,46 +305,78 @@ export const EmentaTab = () => {
       return;
     }
 
-    if (editingSection) {
-      const result = localSections.update(editingSection.id, { nome: sectionFormData.nome });
-      if (!result.success) {
-        toast.error(result.error || "Erro ao atualizar seção");
-      } else {
+    try {
+      if (editingSection) {
+        // Atualizar via API (todas as seções estão no banco de dados)
+        await api.updateMenuSecao(editingSection.id, { nome: sectionFormData.nome });
         toast.success("Seção atualizada com sucesso!");
-        setSectionDialogOpen(false);
-        loadSections();
-      }
-    } else {
-      const result = localSections.create(sectionFormData.nome);
-      if (!result.success) {
-        toast.error(result.error || "Erro ao criar seção");
       } else {
+        // Criar nova seção no banco de dados
+        await api.createMenuSecao({ nome: sectionFormData.nome });
         toast.success("Seção criada com sucesso!");
-        setSectionDialogOpen(false);
-        loadSections();
       }
+      setSectionDialogOpen(false);
+      await loadSections();
+    } catch (error: any) {
+      toast.error(error.message || "Erro ao salvar seção");
     }
   };
 
-  const handleDeleteSection = (id: string) => {
+  const handleDeleteSection = async (id: string) => {
     if (!confirm("Tem certeza que deseja remover esta seção?")) return;
 
-    const result = localSections.delete(id);
-    if (!result.success) {
-      toast.error(result.error || "Erro ao remover seção");
-    } else {
+    try {
+      // Deletar via API (todas as seções estão no banco de dados)
+      await api.deleteMenuSecao(id);
       toast.success("Seção removida com sucesso!");
-      loadSections();
+      await loadSections();
+    } catch (error: any) {
+      toast.error(error.message || "Erro ao remover seção");
     }
   };
+
+  // Função auxiliar para obter URL completa da imagem
+  const getImageUrl = (url: string | null | undefined, itemId?: string): string | null => {
+    if (!url) {
+      // Se não tem URL mas tem ID, pode ter imagem_blob no banco
+      if (itemId) {
+        // Buscar imagem no banco (imagem_blob)
+        return api.getEmentaImage(itemId);
+      }
+      return null;
+    }
+    // Se já é uma URL completa (http/https), retornar como está
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+    // Se é uma rota de API para imagem_blob
+    if (url.startsWith('/api/upload/ementa/')) {
+      return `http://localhost:3001${url}`;
+    }
+    // Se é uma URL relativa (começa com /uploads), adicionar o servidor
+    if (url.startsWith('/uploads')) {
+      return `http://localhost:3001${url}`;
+    }
+    // Se é base64 (data:), retornar como está (para compatibilidade com dados antigos)
+    if (url.startsWith('data:')) {
+      return url;
+    }
+    // Caso contrário, tratar como URL relativa
+    return `http://localhost:3001${url.startsWith('/') ? url : '/' + url}`;
+  };
+
+  const user = localAuth.getCurrentUser();
+  const canEditEmenta = user && (user.role === 'admin' && localAuth.isMainAdmin());
 
   return (
     <div className="space-y-6">
       <div className="flex gap-2">
-        <Button onClick={() => handleOpenDialog()}>
-          <Plus className="mr-2 h-4 w-4" />
-          Adicionar Item
-        </Button>
+        {canEditEmenta && (
+          <Button onClick={() => handleOpenDialog()}>
+            <Plus className="mr-2 h-4 w-4" />
+            Adicionar Item
+          </Button>
+        )}
         <Button onClick={() => handleOpenSectionDialog()} variant="outline">
           <FolderPlus className="mr-2 h-4 w-4" />
           Gerenciar Seções
@@ -379,15 +437,18 @@ export const EmentaTab = () => {
                                 )}
                               </Button>
                             )}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleOpenDialog(item)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
+                            {/* Botão de editar - apenas para admin principal */}
+                            {canEditEmenta && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleOpenDialog(item)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            )}
                             {/* Botão de excluir - apenas para admin principal */}
-                            {localAuth.isMainAdmin() && (
+                            {canEditEmenta && (
                               <Button
                                 size="sm"
                                 variant="destructive"
@@ -499,10 +560,10 @@ export const EmentaTab = () => {
                     }}
                     placeholder="https://exemplo.com/imagem.jpg"
                   />
-                  {previewImage && previewImage.startsWith('http') && (
+                  {previewImage && (
                     <div className="mt-2">
                       <img 
-                        src={previewImage} 
+                        src={getImageUrl(previewImage) || ''} 
                         alt="Preview" 
                         className="w-full h-32 object-cover rounded-lg border"
                         onError={() => setPreviewImage(null)}
@@ -512,11 +573,11 @@ export const EmentaTab = () => {
                 </TabsContent>
                 
                 <TabsContent value="upload" className="space-y-2 mt-2">
-                  {uploadedImage ? (
+                  {previewImage ? (
                     <div className="space-y-2">
                       <div className="relative">
                         <img 
-                          src={uploadedImage} 
+                          src={previewImage} 
                           alt="Preview" 
                           className="w-full h-48 object-cover rounded-lg border"
                         />
@@ -581,8 +642,15 @@ export const EmentaTab = () => {
               <Label htmlFor="destaque">Marcar como destaque</Label>
             </div>
 
-            <Button type="submit" className="w-full">
-              {editingItem ? "Atualizar" : "Adicionar"}
+            <Button type="submit" className="w-full" disabled={uploading}>
+              {uploading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {uploadedFile ? "A fazer upload..." : "A guardar..."}
+                </>
+              ) : (
+                editingItem ? "Atualizar" : "Adicionar"
+              )}
             </Button>
           </form>
         </DialogContent>

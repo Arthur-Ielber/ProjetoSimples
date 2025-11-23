@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { localAuth } from "@/lib/localAuth";
+import { localAuth, User } from "@/lib/localAuth";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
@@ -14,6 +14,8 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAtualizador, setIsAtualizador] = useState(false);
+  const [isMainAdmin, setIsMainAdmin] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -30,8 +32,10 @@ const Dashboard = () => {
 
       const user = localAuth.getCurrentUser();
       if (user) {
+        if (isMounted) setCurrentUser(user);
         if (user.role === "admin") {
           if (isMounted) setIsAdmin(true);
+          if (isMounted) setIsMainAdmin(localAuth.isMainAdmin());
         } else if (user.role === "atualizador") {
           if (isMounted) setIsAtualizador(true);
         } else {
@@ -83,38 +87,66 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="bg-card border-b shadow-soft">
-        <div className="container mx-auto px-3 sm:px-6 py-3 sm:py-4 flex justify-between items-center">
-          <h1 className="text-lg sm:text-2xl font-serif font-bold text-primary">
-            Painel de Administração
-          </h1>
-          <Button variant="outline" onClick={handleLogout} size="sm" className="text-xs sm:text-sm">
-            <LogOut className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-            <span className="hidden sm:inline">Sair</span>
-          </Button>
+      <header className="bg-card border-b shadow-soft sticky top-0 z-50">
+        <div className="container mx-auto px-3 sm:px-6 py-3 sm:py-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <h1 className="text-base sm:text-xl md:text-2xl font-serif font-bold text-primary truncate w-full sm:w-auto">
+              Painel de Administração
+            </h1>
+            <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-end">
+              {currentUser && (
+                <span className="text-xs sm:text-sm text-muted-foreground truncate max-w-[150px] sm:max-w-none">
+                  {currentUser.email}
+                </span>
+              )}
+              <Button variant="outline" onClick={handleLogout} size="sm" className="text-xs sm:text-sm shrink-0">
+                <LogOut className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Sair</span>
+                <span className="sm:hidden">Sair</span>
+              </Button>
+            </div>
+          </div>
         </div>
       </header>
 
       <main className="container mx-auto px-3 sm:px-6 py-4 sm:py-8">
         <Tabs defaultValue="reservas" className="space-y-4 sm:space-y-6">
-          <TabsList className="w-full flex flex-wrap sm:grid sm:grid-cols-3 lg:grid-cols-4 gap-1 sm:gap-2 max-w-4xl">
-            <TabsTrigger value="reservas" className="flex-1 sm:flex-none text-xs sm:text-sm px-2 sm:px-4 py-2">
-              Reservas
-            </TabsTrigger>
-            <TabsTrigger value="ementa" className="flex-1 sm:flex-none text-xs sm:text-sm px-2 sm:px-4 py-2">
-              Ementa
-            </TabsTrigger>
-            <TabsTrigger value="gestao" className="flex-1 sm:flex-none text-xs sm:text-sm px-2 sm:px-4 py-2">
-              <span className="sm:hidden">Gestão</span>
-              <span className="hidden sm:inline">Gestão do Restaurante</span>
-            </TabsTrigger>
-            {isAdmin && (
-              <TabsTrigger value="config" className="flex-1 sm:flex-none text-xs sm:text-sm px-2 sm:px-4 py-2">
-                <span className="sm:hidden">Config</span>
-                <span className="hidden sm:inline">Configurações</span>
+          <div className="w-full">
+            <TabsList className={`w-full !inline-grid !h-auto gap-3 sm:gap-4 p-0 bg-transparent ${
+              isMainAdmin 
+                ? 'grid-cols-2 sm:grid-cols-4' 
+                : 'grid-cols-3'
+            }`}>
+              <TabsTrigger 
+                value="reservas" 
+                className="text-xs sm:text-sm px-4 sm:px-6 py-3 sm:py-3 min-w-0 w-full rounded-lg border border-border bg-muted/50 hover:bg-muted data-[state=active]:bg-background data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:shadow-md transition-all"
+              >
+                Reservas
               </TabsTrigger>
-            )}
-          </TabsList>
+              <TabsTrigger 
+                value="ementa" 
+                className="text-xs sm:text-sm px-4 sm:px-6 py-3 sm:py-3 min-w-0 w-full rounded-lg border border-border bg-muted/50 hover:bg-muted data-[state=active]:bg-background data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:shadow-md transition-all"
+              >
+                Ementa
+              </TabsTrigger>
+              <TabsTrigger 
+                value="gestao" 
+                className="text-xs sm:text-sm px-4 sm:px-6 py-3 sm:py-3 min-w-0 w-full rounded-lg border border-border bg-muted/50 hover:bg-muted data-[state=active]:bg-background data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:shadow-md transition-all"
+              >
+                <span className="sm:hidden">Gestão</span>
+                <span className="hidden sm:inline">Gestão do Restaurante</span>
+              </TabsTrigger>
+              {isMainAdmin && (
+                <TabsTrigger 
+                  value="config" 
+                  className="text-xs sm:text-sm px-4 sm:px-6 py-3 sm:py-3 min-w-0 w-full rounded-lg border border-border bg-muted/50 hover:bg-muted data-[state=active]:bg-background data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:shadow-md transition-all"
+                >
+                  <span className="sm:hidden">Config</span>
+                  <span className="hidden sm:inline">Configurações</span>
+                </TabsTrigger>
+              )}
+            </TabsList>
+          </div>
 
           <TabsContent value="reservas">
             <ReservasTab />
@@ -128,7 +160,7 @@ const Dashboard = () => {
             <GestaoTab />
           </TabsContent>
 
-          {isAdmin && (
+          {isMainAdmin && (
             <TabsContent value="config">
               <ConfigTab />
             </TabsContent>

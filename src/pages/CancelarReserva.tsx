@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { localReservas } from "@/lib/localStorage";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, CheckCircle2, XCircle } from "lucide-react";
@@ -13,51 +13,86 @@ export const CancelarReserva = () => {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    if (!token) {
-      setStatus('error');
-      setMessage("Token inválido");
-      setLoading(false);
-      return;
-    }
+    const cancelarReserva = async () => {
+      if (!token) {
+        setStatus('error');
+        setMessage("Token inválido");
+        setLoading(false);
+        return;
+      }
 
-    // Buscar reserva pelo token
-    const reservas = localReservas.getAll();
-    const reserva = reservas.find(r => r.tokenConfirmacao === token);
+      try {
+        // Buscar reserva pelo token de cancelamento na API
+        const reservas = await api.getReservas();
+        const reserva = reservas.find((r: any) => r.token_cancelamento === token);
 
-    if (!reserva) {
-      setStatus('notfound');
-      setMessage("Reserva não encontrada ou token inválido");
-      setLoading(false);
-      return;
-    }
+        if (!reserva) {
+          setStatus('notfound');
+          setMessage("Reserva não encontrada ou token inválido. Este token pode ter sido usado anteriormente.");
+          setLoading(false);
+          return;
+        }
 
-    if (reserva.estado === 'cancelado' || reserva.estado === 'finalizado') {
-      setStatus('error');
-      setMessage("Esta reserva já foi cancelada ou finalizada");
-      setLoading(false);
-      return;
-    }
+        // Verificar se a reserva já foi cancelada ou finalizada
+        if (reserva.estado === 'cancelado' || reserva.estado === 'finalizado') {
+          setStatus('error');
+          setMessage("Esta reserva já foi cancelada ou finalizada");
+          setLoading(false);
+          return;
+        }
+        
+        // Verificar se a reserva já foi confirmada pelo cliente
+        if (reserva.confirmado_pelo_cliente === 1 || reserva.confirmado_pelo_cliente === true) {
+          setStatus('error');
+          setMessage("Esta reserva já foi confirmada pelo cliente e não pode ser cancelada.");
+          setLoading(false);
+          return;
+        }
+        
+        // Verificar se a reserva já está confirmada pelo cliente
+        if (reserva.estado === 'confirmado_cliente') {
+          setStatus('error');
+          setMessage("Esta reserva já está confirmada pelo cliente e não pode ser cancelada.");
+          setLoading(false);
+          return;
+        }
 
-    // Cancelar a reserva
-    const result = localReservas.update(reserva.id, { 
-      estado: 'cancelado' 
-    });
+        // Cancelar a reserva na API e invalidar ambos os tokens
+        await api.updateReserva(reserva.id, { 
+          estado: 'cancelado',
+          token_confirmacao: null, // Invalidar token de confirmação quando cancelar
+          token_cancelamento: null  // Invalidar token de cancelamento após uso
+        });
 
-    if (!result.success) {
-      setStatus('error');
-      setMessage("Erro ao cancelar reserva");
-      setLoading(false);
-      return;
-    }
+        // Adicionar observação indicando que o cliente cancelou
+        try {
+          await api.addReservaObservacao(reserva.id, {
+            mensagem: "Cliente cancelou a reserva através do link do email.",
+            autor: 'cliente',
+            autor_nome: `${reserva.nome} ${reserva.apelido}`
+          });
+        } catch (obsError) {
+          console.error('Erro ao adicionar observação:', obsError);
+          // Continuar mesmo se falhar
+        }
 
-    setStatus('success');
-    setMessage("Reserva cancelada com sucesso. Sentimos muito que não possa comparecer.");
-    setLoading(false);
+        setStatus('success');
+        setMessage("Reserva cancelada com sucesso. Sentimos muito que não possa comparecer.");
+        setLoading(false);
 
-    // Redirecionar após 3 segundos
-    setTimeout(() => {
-      navigate("/");
-    }, 3000);
+        // Redirecionar após 3 segundos
+        setTimeout(() => {
+          navigate("/");
+        }, 3000);
+      } catch (error) {
+        console.error('Erro ao cancelar reserva:', error);
+        setStatus('error');
+        setMessage("Erro ao processar cancelamento da reserva");
+        setLoading(false);
+      }
+    };
+
+    cancelarReserva();
   }, [token, navigate]);
 
   return (

@@ -55,6 +55,14 @@ Write-Host "⏳ Aguardando liberação das portas..." -ForegroundColor Yellow
 Start-Sleep -Seconds 3
 
 Write-Host ""
+Write-Host "🔄 Executando reset do sistema..." -ForegroundColor Yellow
+npm run reset
+
+Write-Host ""
+Write-Host "🧪 Testando conexões..." -ForegroundColor Yellow
+npm run test:connections
+
+Write-Host ""
 Write-Host "🚀 Iniciando aplicação..." -ForegroundColor Green
 Write-Host ""
 

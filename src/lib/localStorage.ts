@@ -582,7 +582,7 @@ export interface Reserva {
   hora_reserva: string;
   numero_pessoas: number;
   mesaId?: string | null;
-  estado: 'pendente' | 'confirmado' | 'cancelado' | 'finalizado';
+  estado: 'pendente' | 'aguardando_cliente' | 'confirmado_cliente' | 'cancelado' | 'finalizado';
   observacoes: Observacao[];
   observacoesRestaurante?: string; // Observações do restaurante sobre a reserva
   respostaCliente?: string; // Resposta/mensagem do restaurante ao cliente
@@ -750,7 +750,7 @@ export const localReservas = {
       const reservas = localReservas.getAll();
       const reserva = reservas.find(r => 
         r.mesaId === mesaId &&
-        r.estado === 'confirmado' &&
+        (r.estado === 'aguardando_cliente' || r.estado === 'confirmado_cliente') &&
         r.data_reserva === data &&
         r.hora_reserva === hora
       );
@@ -766,7 +766,7 @@ export const localReservas = {
       const reservas = localReservas.getAll();
       return reservas.filter(r => 
         r.mesaId === mesaId &&
-        r.estado === 'confirmado' &&
+        (r.estado === 'aguardando_cliente' || r.estado === 'confirmado_cliente') &&
         r.data_reserva === data
       );
     } catch (error) {
@@ -828,6 +828,7 @@ export interface Pedido {
   id: string;
   nomeCliente: string;
   mesaId?: string | null; // ID da mesa (opcional para compatibilidade)
+  reservaId?: string | null; // ID da reserva associada (opcional)
   itens: ItemPedido[];
   subtotal: number; // Soma dos pratos
   taxa: number; // Taxa (atualmente 0)
@@ -1092,6 +1093,69 @@ export const localPedidos = {
     } catch (error) {
       console.error('Erro ao reabrir pedido:', error);
       return { success: false, error: 'Erro ao reabrir pedido' };
+    }
+  },
+
+  // Cancelar automaticamente comandas de reserva sem itens com mais de 2 minutos
+  cancelarComandasReservaAntigas: (): { success: boolean; canceladas: number; error?: string } => {
+    try {
+      const pedidos = localPedidos.getAll();
+      const agora = new Date();
+      let canceladas = 0;
+      let needsSave = false;
+
+      const pedidosAtualizados = pedidos.map((pedido) => {
+        // Verificar se é comanda de reserva (observação contém "Comanda aberta automaticamente para reserva confirmada")
+        const isComandaReserva = pedido.observacoes?.includes('Comanda aberta automaticamente para reserva confirmada');
+        
+        // Verificar se está aberta ou pendente, sem itens, e é comanda de reserva
+        if (
+          isComandaReserva &&
+          (pedido.status === 'aberta' || pedido.status === 'pendente') &&
+          pedido.itens.length === 0
+        ) {
+          // Calcular tempo desde criação
+          const dataCriacao = new Date(pedido.created_at);
+          const diferencaSegundos = (agora.getTime() - dataCriacao.getTime()) / 1000;
+          const diferencaMinutos = diferencaSegundos / 60;
+          
+          // Se passou mais de 2 minutos, finalizar e cancelar a comanda
+          if (diferencaMinutos >= 2) {
+            console.log(`[AUTO] Cancelando comanda de reserva sem itens após ${diferencaMinutos.toFixed(1)} minutos: ${pedido.id}`);
+            canceladas++;
+            needsSave = true;
+            
+            // Marcar como finalizada antes de remover (para histórico)
+            const pedidoFinalizado = {
+              ...pedido,
+              status: 'finalizada' as StatusPedido,
+              observacoesFinalizacao: pedido.observacoesFinalizacao || 'Comanda cancelada automaticamente: cliente não adicionou itens em 2 minutos',
+              updated_at: agora.toISOString(),
+            };
+            
+            // Remover da lista (não manter histórico de comandas vazias canceladas)
+            return null;
+          }
+        }
+        
+        return pedido;
+      });
+
+      if (needsSave) {
+        // Filtrar comandas canceladas (null)
+        const pedidosFiltrados = pedidosAtualizados.filter((p): p is Pedido => p !== null);
+        localStorage.setItem(PEDIDOS_STORAGE_KEY, JSON.stringify(pedidosFiltrados));
+        
+        // Disparar evento customizado
+        window.dispatchEvent(new CustomEvent('localStorageChange', { 
+          detail: { key: PEDIDOS_STORAGE_KEY, action: 'delete' } 
+        }));
+      }
+
+      return { success: true, canceladas };
+    } catch (error) {
+      console.error('Erro ao cancelar comandas antigas:', error);
+      return { success: false, canceladas: 0, error: 'Erro ao cancelar comandas antigas' };
     }
   },
 };

@@ -3,6 +3,18 @@ import cors from 'cors';
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 import imaps from 'imap-simple';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { getConnection, testConnection, query } from './src/lib/database.js';
+import { v4 as uuidv4 } from 'uuid';
+import configuracoesRouter from './src/routes/configuracoes.js';
+import ementaRouter from './src/routes/ementa.js';
+import menuSecoesRouter from './src/routes/menu-secoes.js';
+import reservasRouter from './src/routes/reservas.js';
+import pedidosRouter from './src/routes/pedidos.js';
+import mesasRouter from './src/routes/mesas.js';
+import authRouter from './src/routes/auth.js';
+import uploadRouter from './src/routes/upload.js';
 
 dotenv.config();
 
@@ -11,21 +23,133 @@ const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+// Limite aumentado para 30MB para suportar imagens de até 15MB em base64 (~20MB após codificação)
+app.use(express.json({ limit: '30mb' }));
+app.use(express.urlencoded({ extended: true, limit: '30mb' }));
+
+// Servir arquivos estáticos (imagens)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Função para finalizar todas as atividades pendentes na inicialização
+async function finalizarAtividadesPendentes() {
+  try {
+    console.log('[INICIALIZAÇÃO] 🧹 Finalizando atividades pendentes...');
+    
+    // 1. Finalizar todas as comandas abertas ou pendentes
+    const comandasPendentes = await query(
+      `SELECT id, nome_cliente, status FROM pedidos 
+       WHERE status IN ('aberta', 'pendente')`
+    );
+    
+    if (comandasPendentes.length > 0) {
+      console.log(`[INICIALIZAÇÃO]   Encontradas ${comandasPendentes.length} comanda(s) pendente(s)`);
+      
+      for (const comanda of comandasPendentes) {
+        await query(
+          `UPDATE pedidos 
+           SET status = 'finalizada',
+               observacoes_finalizacao = CONCAT(COALESCE(observacoes_finalizacao, ''), 
+                 CASE WHEN observacoes_finalizacao IS NOT NULL THEN ' | ' ELSE '' END,
+                 'Finalizada automaticamente na inicialização do servidor')
+           WHERE id = ?`,
+          [comanda.id]
+        );
+        console.log(`[INICIALIZAÇÃO]   ✓ Comanda ${comanda.id} (${comanda.nome_cliente}) finalizada`);
+      }
+    } else {
+      console.log('[INICIALIZAÇÃO]   ✓ Nenhuma comanda pendente encontrada');
+    }
+    
+    // 2. Finalizar reservas em estados intermediários
+    const reservasPendentes = await query(
+      `SELECT id, nome, estado FROM reservas 
+       WHERE estado IN ('aguardando_cliente', 'confirmado_cliente')`
+    );
+    
+    if (reservasPendentes.length > 0) {
+      console.log(`[INICIALIZAÇÃO]   Encontradas ${reservasPendentes.length} reserva(s) pendente(s)`);
+      
+      for (const reserva of reservasPendentes) {
+        // Finalizar reservas confirmadas pelo cliente ou aguardando confirmação
+        await query(
+          `UPDATE reservas 
+           SET estado = 'finalizado'
+           WHERE id = ?`,
+          [reserva.id]
+        );
+        
+        // Adicionar observação automática
+        const obsId = uuidv4();
+        await query(
+          `INSERT INTO reserva_observacoes (id, reserva_id, mensagem, autor) 
+           VALUES (?, ?, ?, ?)`,
+          [
+            obsId,
+            reserva.id,
+            'Reserva finalizada automaticamente na inicialização do servidor',
+            'admin'
+          ]
+        );
+        
+        console.log(`[INICIALIZAÇÃO]   ✓ Reserva ${reserva.id} (${reserva.nome}) finalizada`);
+      }
+    } else {
+      console.log('[INICIALIZAÇÃO]   ✓ Nenhuma reserva pendente encontrada');
+    }
+    
+    console.log('[INICIALIZAÇÃO] ✅ Limpeza concluída - sistema pronto para uso');
+  } catch (error) {
+    console.error('[INICIALIZAÇÃO] ❌ Erro ao finalizar atividades pendentes:', error);
+    // Não bloquear a inicialização do servidor se houver erro
+    console.warn('[INICIALIZAÇÃO] ⚠️ Servidor continuará iniciando mesmo com erro na limpeza');
+  }
+}
+
+// Testar conexão MySQL ao iniciar e finalizar atividades pendentes
+testConnection().then(async (result) => {
+  if (result.success) {
+    console.log('[BACKEND]', result.message);
+    // Finalizar atividades pendentes após conectar ao banco
+    await finalizarAtividadesPendentes();
+  } else {
+    console.error('[BACKEND] Erro ao conectar com MySQL:', result.error);
+    console.warn('[BACKEND] O servidor continuará rodando, mas funcionalidades de banco de dados estarão desabilitadas.');
+  }
+});
 
 // Configurar transporter do Gmail (opcional - só funciona se EMAIL_USER e EMAIL_PASS estiverem configurados)
 let transporter = null;
 if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+  console.log('[BACKEND] Configurando serviço de email...');
+  console.log('[BACKEND] EMAIL_USER:', process.env.EMAIL_USER);
+  console.log('[BACKEND] EMAIL_PASS:', process.env.EMAIL_PASS ? '***configurado***' : 'NÃO CONFIGURADO');
+  
   transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
-  console.log('[BACKEND] Serviço de email configurado com sucesso');
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+  });
+  
+  // Testar conexão do transporter
+  transporter.verify((error, success) => {
+    if (error) {
+      console.error('[BACKEND] ❌ Erro ao verificar conexão do email:', error);
+      console.error('[BACKEND] Detalhes do erro:', {
+        code: error.code,
+        command: error.command,
+        response: error.response,
+        responseCode: error.responseCode
+      });
+    } else {
+      console.log('[BACKEND] ✅ Serviço de email configurado e verificado com sucesso');
+    }
+  });
 } else {
-  console.warn('[BACKEND] AVISO: EMAIL_USER e EMAIL_PASS não estão configurados. Funcionalidades de email estarão desabilitadas.');
+  console.warn('[BACKEND] ⚠️ AVISO: EMAIL_USER e EMAIL_PASS não estão configurados. Funcionalidades de email estarão desabilitadas.');
   console.warn('[BACKEND] Para habilitar, adicione no arquivo .env:');
   console.warn('[BACKEND] EMAIL_USER=seu_email@gmail.com');
   console.warn('[BACKEND] EMAIL_PASS=sua_senha_de_app');
@@ -77,7 +201,10 @@ function formatarObservacoes(observacoes) {
 function getMensagemStatus(estado) {
   const mensagens = {
     pendente: 'A sua reserva está pendente de confirmação.',
-    confirmado: 'A sua reserva foi <strong style="color: #4CAF50;">CONFIRMADA</strong>! Estamos ansiosos para recebê-lo.',
+    aguardando_cliente: 'A sua reserva foi <strong style="color: #4CAF50;">CONFIRMADA PELO RESTAURANTE</strong>! Por favor, confirme ou cancele a sua reserva usando os botões abaixo.',
+    confirmado_cliente: 'A sua reserva foi <strong style="color: #4CAF50;">CONFIRMADA</strong>! Estamos ansiosos para recebê-lo.',
+    cliente_na_mesa: 'O cliente está na mesa e sendo atendido.',
+    confirmado: 'A sua reserva foi <strong style="color: #4CAF50;">CONFIRMADA</strong>! Estamos ansiosos para recebê-lo.', // Mantido para compatibilidade
     cancelado: 'A sua reserva foi <strong style="color: #f44336;">CANCELADA</strong>.',
     finalizado: 'A sua reserva foi <strong style="color: #2196F3;">FINALIZADA</strong>. Obrigado pela sua visita!',
   };
@@ -96,8 +223,15 @@ app.post('/api/send-reservation-confirmation', async (req, res) => {
       apelido, 
       data_reserva, 
       hora_reserva, 
-      numero_pessoas
+      numero_pessoas,
+      tokenConfirmacao
     } = req.body;
+    
+    console.log('[EMAIL CONFIRMAÇÃO] Token recebido:', {
+      tokenConfirmacao: tokenConfirmacao ? String(tokenConfirmacao).substring(0, 30) + '...' : 'AUSENTE',
+      tokenType: typeof tokenConfirmacao,
+      tokenValido: tokenConfirmacao && String(tokenConfirmacao).trim().length > 0
+    });
 
     if (!email || !nome || !data_reserva || !hora_reserva) {
       console.error('Dados incompletos:', { email, nome, data_reserva, hora_reserva });
@@ -214,6 +348,33 @@ app.post('/api/send-reservation-confirmation', async (req, res) => {
               Receberá um email assim que analisarmos a sua solicitação e confirmarmos a sua reserva.
             </p>
             
+            ${tokenConfirmacao ? `
+            <div class="button-container" style="margin: 30px 0; text-align: center; padding: 20px 0;">
+              <p style="margin-bottom: 20px; color: #333; font-size: 16px; font-weight: bold;">
+                Por favor, confirme ou cancele a sua reserva:
+              </p>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+                <tr>
+                  <td style="padding: 10px;">
+                    <a href="${process.env.FRONTEND_URL || 'http://localhost:8080'}/confirmar-reserva/${tokenConfirmacao}" 
+                       style="display: inline-block; padding: 15px 35px; background-color: #4CAF50; color: #ffffff; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; text-align: center;">
+                      ✓ Confirmar Reserva
+                    </a>
+                  </td>
+                  <td style="padding: 10px;">
+                    <a href="${process.env.FRONTEND_URL || 'http://localhost:8080'}/cancelar-reserva/${tokenConfirmacao}" 
+                       style="display: inline-block; padding: 15px 35px; background-color: #f44336; color: #ffffff; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; text-align: center;">
+                      ✗ Desistir
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin-top: 15px; color: #666; font-size: 12px;">
+                Clique em um dos botões acima para confirmar ou cancelar a sua reserva.
+              </p>
+            </div>
+            ` : ''}
+            
             <p>Atenciosamente,<br><strong>Equipa do Restaurante</strong></p>
           </div>
           
@@ -263,7 +424,8 @@ app.post('/api/send-reservation-email', async (req, res) => {
       mesaNumero,
       observacoesRestaurante,
       respostaCliente,
-      tokenConfirmacao
+      tokenConfirmacao,
+      tokenCancelamento
     } = req.body;
 
     if (!email || !nome || !estado) {
@@ -287,11 +449,11 @@ app.post('/api/send-reservation-email', async (req, res) => {
       email,
       estado,
       tokenConfirmacao: tokenConfirmacao ? 'presente (' + tokenConfirmacao.substring(0, 8) + '...)' : 'ausente',
+      tokenCancelamento: tokenCancelamento ? 'presente (' + tokenCancelamento.substring(0, 8) + '...)' : 'ausente',
       respostaCliente: respostaCliente ? 'presente (' + respostaCliente.substring(0, 50) + '...)' : 'ausente',
       mesaNumero,
-      mostrarBotoes: estado === 'confirmado' && tokenConfirmacao ? 'SIM' : 'NÃO',
-      estadoIgualConfirmado: estado === 'confirmado',
-      temToken: !!tokenConfirmacao
+      mostrarBotoes: (tokenConfirmacao && tokenCancelamento) ? 'SIM (sempre que houver ambos os tokens)' : 'NÃO',
+      temTokens: !!(tokenConfirmacao && tokenCancelamento)
     });
     
     // Observações do restaurante NÃO são enviadas no email (apenas para uso interno)
@@ -299,12 +461,36 @@ app.post('/api/send-reservation-email', async (req, res) => {
 
     // Construir HTML dos botões
     let botoesHTML = '';
-    // Verificar se deve mostrar botões - estado deve ser 'confirmado' e deve haver token
-    const deveMostrarBotoes = estado === 'confirmado' && tokenConfirmacao && tokenConfirmacao.trim().length > 0;
+    // Verificar se deve mostrar botões - deve haver ambos os tokens válidos
+    const tokenConfirmacaoValido = tokenConfirmacao && 
+      tokenConfirmacao !== null && 
+      tokenConfirmacao !== undefined && 
+      String(tokenConfirmacao).trim().length > 0;
+    const tokenCancelamentoValido = tokenCancelamento && 
+      tokenCancelamento !== null && 
+      tokenCancelamento !== undefined && 
+      String(tokenCancelamento).trim().length > 0;
+    const deveMostrarBotoes = tokenConfirmacaoValido && tokenCancelamentoValido; // Mostrar botões sempre que houver ambos os tokens válidos
+    
+    console.log('[EMAIL DEBUG] 🔍 VALIDAÇÃO DO TOKEN:', {
+      tokenConfirmacao: tokenConfirmacao ? String(tokenConfirmacao).substring(0, 30) + '...' : 'AUSENTE',
+      tokenConfirmacaoType: typeof tokenConfirmacao,
+      tokenConfirmacaoIsNull: tokenConfirmacao === null,
+      tokenConfirmacaoIsUndefined: tokenConfirmacao === undefined,
+      tokenConfirmacaoTrimmed: tokenConfirmacao ? String(tokenConfirmacao).trim() : 'N/A',
+      tokenConfirmacaoLength: tokenConfirmacao ? String(tokenConfirmacao).trim().length : 0,
+      tokenConfirmacaoValido: tokenConfirmacaoValido,
+      tokenCancelamentoValido: tokenCancelamentoValido,
+      deveMostrarBotoes
+    });
     
     console.log('[EMAIL DEBUG] Verificando botões e resposta ao cliente:', {
       estado,
-      tokenConfirmacao: tokenConfirmacao ? tokenConfirmacao.substring(0, 20) + '...' : 'null/undefined',
+      tokenConfirmacao: tokenConfirmacao ? (typeof tokenConfirmacao === 'string' ? tokenConfirmacao.substring(0, 20) + '...' : String(tokenConfirmacao).substring(0, 20) + '...') : 'null/undefined',
+      tokenConfirmacaoType: typeof tokenConfirmacao,
+      tokenConfirmacaoValue: tokenConfirmacao,
+      tokenConfirmacaoValido: tokenConfirmacaoValido,
+      tokenCancelamentoValido: tokenCancelamentoValido,
       respostaCliente: respostaCliente ? respostaCliente.substring(0, 50) + '...' : 'vazio',
       deveMostrarBotoes,
       botoesHTMLLength: botoesHTML.length,
@@ -313,6 +499,19 @@ app.post('/api/send-reservation-email', async (req, res) => {
     
     if (deveMostrarBotoes) {
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+      // Garantir que ambos os tokens sejam strings
+      const tokenConfirmacaoString = typeof tokenConfirmacao === 'string' ? tokenConfirmacao.trim() : String(tokenConfirmacao || '');
+      const tokenCancelamentoString = typeof tokenCancelamento === 'string' ? tokenCancelamento.trim() : String(tokenCancelamento || '');
+      
+      console.log('[EMAIL DEBUG] ✅ GERANDO BOTÕES - Tokens válidos encontrados!');
+      console.log('[EMAIL DEBUG] Gerando botões com tokens:', {
+        tokenConfirmacaoString: tokenConfirmacaoString.substring(0, 20) + '...',
+        tokenCancelamentoString: tokenCancelamentoString.substring(0, 20) + '...',
+        frontendUrl,
+        urlConfirmar: `${frontendUrl}/confirmar-reserva/${tokenConfirmacaoString}`,
+        urlCancelar: `${frontendUrl}/cancelar-reserva/${tokenCancelamentoString}`
+      });
+      
       botoesHTML = `
             <div class="button-container" style="margin: 30px 0; text-align: center; padding: 20px 0;">
               <p style="margin-bottom: 20px; color: #333; font-size: 16px; font-weight: bold;">
@@ -321,13 +520,13 @@ app.post('/api/send-reservation-email', async (req, res) => {
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
                 <tr>
                   <td style="padding: 10px;">
-                    <a href="${frontendUrl}/confirmar-reserva/${tokenConfirmacao}" 
+                    <a href="${frontendUrl}/confirmar-reserva/${tokenConfirmacaoString}" 
                        style="display: inline-block; padding: 15px 35px; background-color: #4CAF50; color: #ffffff; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; text-align: center;">
                       ✓ Confirmar Reserva
                     </a>
                   </td>
                   <td style="padding: 10px;">
-                    <a href="${frontendUrl}/cancelar-reserva/${tokenConfirmacao}" 
+                    <a href="${frontendUrl}/cancelar-reserva/${tokenCancelamentoString}" 
                        style="display: inline-block; padding: 15px 35px; background-color: #f44336; color: #ffffff; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; text-align: center;">
                       ✗ Desistir
                     </a>
@@ -335,17 +534,29 @@ app.post('/api/send-reservation-email', async (req, res) => {
                 </tr>
               </table>
               <p style="margin-top: 15px; color: #666; font-size: 12px;">
-                Clique em um dos botões acima para confirmar ou cancelar a sua reserva.
+                Clique em um dos botões acima para confirmar ou cancelar a sua reserva. Cada botão só pode ser usado uma vez.
               </p>
             </div>
       `;
+    } else {
+      console.log('[EMAIL DEBUG] ❌ BOTÕES NÃO SERÃO MOSTRADOS:', {
+        estado,
+        tokenConfirmacao: tokenConfirmacao ? ('presente: ' + (typeof tokenConfirmacao === 'string' ? tokenConfirmacao.substring(0, 20) + '...' : String(tokenConfirmacao).substring(0, 20) + '...')) : 'AUSENTE',
+        tokenConfirmacaoType: typeof tokenConfirmacao,
+        tokenConfirmacaoValue: tokenConfirmacao,
+        tokenConfirmacaoValido: tokenConfirmacaoValido,
+        tokenCancelamentoValido: tokenCancelamentoValido,
+        deveMostrarBotoes,
+        motivo: !tokenConfirmacao ? 'Token de confirmação não fornecido' : (!tokenCancelamento ? 'Token de cancelamento não fornecido' : 'Tokens inválidos')
+      });
     }
     
     // Log do HTML gerado (primeiros 200 caracteres)
-    console.log('[EMAIL DEBUG] HTML gerado:', {
+    console.log('[EMAIL DEBUG] 📧 HTML FINAL DO EMAIL:', {
       botoesHTMLLength: botoesHTML.length,
+      botoesHTMLPresente: botoesHTML.length > 0 ? 'SIM ✅' : 'NÃO ❌',
       respostaClienteLength: respostaCliente ? respostaCliente.length : 0,
-      botoesHTMLPreview: botoesHTML ? botoesHTML.substring(0, 200) + '...' : 'VAZIO',
+      botoesHTMLPreview: botoesHTML ? botoesHTML.substring(0, 300) + '...' : 'VAZIO - BOTÕES NÃO SERÃO MOSTRADOS',
       respostaClientePreview: respostaCliente ? respostaCliente.substring(0, 200) + '...' : 'VAZIO',
       observacoesRestauranteRecebido: observacoesRestaurante ? 'PRESENTE (MAS NÃO SERÁ USADO NO EMAIL)' : 'AUSENTE',
       confirmacao: 'Observações do Restaurante NÃO aparecem no email - apenas Mensagem do Restaurante'
@@ -491,24 +702,61 @@ app.post('/api/send-reservation-email', async (req, res) => {
     };
 
     if (!transporter) {
-      console.warn('Email não enviado: serviço de email não configurado');
-      return res.json({ 
-        success: true, 
-        message: 'Reserva atualizada com sucesso (email não enviado - serviço não configurado)' 
+      console.warn('[EMAIL DEBUG] Email não enviado: serviço de email não configurado');
+      console.warn('[EMAIL DEBUG] Verifique se EMAIL_USER e EMAIL_PASS estão configurados no .env');
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Serviço de email não configurado. Verifique EMAIL_USER e EMAIL_PASS no arquivo .env' 
       });
     }
 
-    await transporter.sendMail(mailOptions);
+    console.log('[EMAIL DEBUG] Enviando email via transporter...');
+    console.log('[EMAIL DEBUG] MailOptions:', {
+      from: mailOptions.from,
+      to: mailOptions.to,
+      subject: mailOptions.subject,
+      htmlLength: mailOptions.html ? mailOptions.html.length : 0
+    });
+    
+    const info = await transporter.sendMail(mailOptions);
+    console.log('[EMAIL DEBUG] ✅ Email enviado com sucesso!');
+    console.log('[EMAIL DEBUG] MessageId:', info.messageId);
+    console.log('[EMAIL DEBUG] Email enviado para:', email);
+    console.log('[EMAIL DEBUG] Resposta completa:', JSON.stringify(info, null, 2));
 
     res.json({ 
       success: true, 
-      message: 'Email enviado com sucesso' 
+      message: 'Email enviado com sucesso',
+      messageId: info.messageId
     });
   } catch (error) {
-    console.error('Erro ao enviar email:', error);
+    console.error('[EMAIL DEBUG] ❌ Erro ao enviar email:', error);
+    console.error('[EMAIL DEBUG] Tipo do erro:', error.constructor.name);
+    console.error('[EMAIL DEBUG] Stack trace:', error.stack);
+    
+    // Log detalhado do erro do nodemailer
+    if (error.code) {
+      console.error('[EMAIL DEBUG] Código do erro:', error.code);
+    }
+    if (error.command) {
+      console.error('[EMAIL DEBUG] Comando que falhou:', error.command);
+    }
+    if (error.response) {
+      console.error('[EMAIL DEBUG] Resposta do servidor:', error.response);
+    }
+    if (error.responseCode) {
+      console.error('[EMAIL DEBUG] Código de resposta:', error.responseCode);
+    }
+    
     res.status(500).json({ 
       success: false, 
-      error: 'Erro ao enviar email: ' + error.message 
+      error: 'Erro ao enviar email: ' + (error.message || 'Erro desconhecido'),
+      details: process.env.NODE_ENV === 'development' ? {
+        code: error.code,
+        command: error.command,
+        response: error.response,
+        responseCode: error.responseCode
+      } : undefined
     });
   }
 });
@@ -746,9 +994,33 @@ app.get('/api/check-email-replies', async (req, res) => {
   }
 });
 
+// Registrar rotas da API
+app.use('/api/configuracoes', configuracoesRouter);
+app.use('/api/ementa', ementaRouter);
+app.use('/api/menu-secoes', menuSecoesRouter);
+app.use('/api/reservas', reservasRouter);
+app.use('/api/pedidos', pedidosRouter);
+app.use('/api/mesas', mesasRouter);
+app.use('/api/auth', authRouter);
+app.use('/api/upload', uploadRouter);
+
 // Endpoint de teste
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Servidor de email funcionando' });
+});
+
+// Endpoint para testar conexão MySQL
+app.get('/api/database/test', async (req, res) => {
+  try {
+    const result = await testConnection();
+    if (result.success) {
+      res.json({ success: true, message: result.message });
+    } else {
+      res.status(500).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 app.listen(PORT, () => {

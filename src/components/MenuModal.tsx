@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { localMenu, localSections, MenuSection } from "@/lib/localStorage";
+import { MenuSection } from "@/lib/localStorage";
+import { api } from "@/lib/api";
 import { Loader2 } from "lucide-react";
 
 interface MenuItem {
@@ -22,25 +23,42 @@ export const MenuModal = ({ open, onOpenChange }: MenuModalProps) => {
   const [sections, setSections] = useState<MenuSection[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const loadMenu = useCallback(() => {
+  const loadMenu = useCallback(async () => {
     setLoading(true);
-    // Obter apenas pratos ativos
-    const items = localMenu.getAtivos();
-    // Ordenar por seção e nome (criar cópia para não modificar o original)
-    const sorted = [...items].sort((a, b) => {
-      if (a.secao !== b.secao) {
-        return a.secao.localeCompare(b.secao);
-      }
-      return a.nome.localeCompare(b.nome);
-    });
-    setMenuItems(sorted);
-    
-    // Carregar seções ordenadas
-    const sectionsData = localSections.getAll();
-    const sortedSections = [...sectionsData].sort((a, b) => a.ordem - b.ordem);
-    setSections(sortedSections);
-    
-    setLoading(false);
+    try {
+      // Carregar apenas pratos ativos da API
+      const items = await api.getEmentaAtivos();
+      
+      // Processar e ordenar itens
+      const processedItems = items.map((item: any) => ({
+        id: item.id,
+        nome: item.nome,
+        descricao: item.descricao,
+        preco: typeof item.preco === 'string' ? parseFloat(item.preco) : item.preco,
+        secao: item.secao,
+        imagem_url: item.imagem_url,
+      }));
+      
+      // Ordenar por seção e nome
+      const sorted = [...processedItems].sort((a, b) => {
+        if (a.secao !== b.secao) {
+          return a.secao.localeCompare(b.secao);
+        }
+        return a.nome.localeCompare(b.nome);
+      });
+      setMenuItems(sorted);
+      
+      // Carregar seções da API
+      const sectionsData = await api.getMenuSecoes();
+      const sortedSections = [...sectionsData].sort((a: any, b: any) => (a.ordem || 0) - (b.ordem || 0));
+      setSections(sortedSections);
+    } catch (error) {
+      console.error('Erro ao carregar menu:', error);
+      setMenuItems([]);
+      setSections([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -48,26 +66,15 @@ export const MenuModal = ({ open, onOpenChange }: MenuModalProps) => {
       loadMenu();
     }
     
-    // Listener para atualizar quando houver mudanças no localStorage
-    const handleStorageChange = (e: StorageEvent) => {
-      if ((e.key === 'table_menu_ementa' || e.key === 'table_menu_secoes') && open) {
+    // Atualizar menu a cada 30 segundos quando aberto
+    const interval = setInterval(() => {
+      if (open) {
         loadMenu();
       }
-    };
-    
-    // Listener para atualizar quando houver mudanças na mesma aba
-    const handleCustomStorageChange = (e: CustomEvent) => {
-      if ((e.detail?.key === 'table_menu_ementa' || e.detail?.key === 'table_menu_secoes') && open) {
-        loadMenu();
-      }
-    };
-    
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('localStorageChange', handleCustomStorageChange as EventListener);
+    }, 30000);
     
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('localStorageChange', handleCustomStorageChange as EventListener);
+      clearInterval(interval);
     };
   }, [open, loadMenu]);
 
